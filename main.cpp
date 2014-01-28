@@ -1,8 +1,9 @@
+#include <list>
+#include <iostream>
 #include "precorrection.h"
 #include "JNB.h"
 #include "imagewindow.h"
-#include <list>
-#include <iostream>
+#include "canoninterface.h"
 
 std::list<ImageWindow> windowList;
 std::vector<Image> imageVec;
@@ -203,7 +204,11 @@ int main(void) {
 	Image PSF;
 	PSF.fromBinary("psf_-2.5.dbl");
 
-	test1(F, PSF);
+	//test1(F, PSF);
+
+	connectToFirstCamera();
+	takeAPicture("pic.jpg");
+	disconFromFirstCamera();
 
 	loop();
 

@@ -21,9 +21,15 @@
     <ClCompile Include="imagewindow.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="canoninterface.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="imagewindow.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="canoninterface.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
