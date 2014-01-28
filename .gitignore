@@ -1,0 +1,5 @@
+*.user
+*.dbl
+*.png
+Debug/
+Release/
