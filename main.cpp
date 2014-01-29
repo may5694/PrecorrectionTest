@@ -33,7 +33,7 @@ void saveColorImage(const Image& r, const Image& g, const Image& b, const std::s
 	delete [] buf; buf = NULL;
 }
 ImageWindow* showImage(const Image& image, int dx = 0, int dy = 0, const std::string& title = "") {
-	ImageWindow w(image);
+	ImageWindow w(image, true);
 	w.setTitle(title);
 	w.move(dx, dy);
 	windowList.push_back(std::move(w));
@@ -53,6 +53,14 @@ ImageWindow* showColorImage(const Image& r, const Image& g, const Image& b, int 
 	return &windowList.back();
 
 	delete [] buf; buf = NULL;
+}
+ImageWindow* showFullscreenImage(const Image& image) {
+	ImageWindow w(image, false);
+	w.position(1680, 0);
+	w.resize(1280, 1024);
+	w.setColor(0, 0, 0);
+	windowList.push_back(std::move(w));
+	return &windowList.back();
 }
 void addImageToGrid(const Image& image, const std::string& title = "") {
 	if (image.getWidth() > imw) imw = image.getWidth();
@@ -202,13 +210,24 @@ int main(void) {
 
 	// Load the PSF
 	Image PSF;
-	PSF.fromBinary("psf_-2.5.dbl");
+	PSF.fromBinary("psf_1.5_d10_p4.dbl");
 
-	//test1(F, PSF);
+	// Precorrect
+	Image KtF = precorrect(F, PSF, 9.3e4);
 
 	connectToFirstCamera();
-	takeAPicture("pic.jpg");
+
+	ImageWindow* w = showFullscreenImage(KtF);
+	w->update();
+
+	sf::sleep(sf::seconds(1.0));
+	takeAPicture("camera_lenna_prec_blur_0.5_40.jpg");
+
 	disconFromFirstCamera();
+
+	// Convolve image
+	Image KKtF = convolve(KtF, PSF, BC_PERIODIC);
+	showImage(KKtF, 0, 0, "KKtF");
 
 	loop();
 

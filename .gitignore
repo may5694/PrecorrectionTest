@@ -1,5 +1,6 @@
 *.user
 *.dbl
 *.png
+*.jpg
 Debug/
 Release/

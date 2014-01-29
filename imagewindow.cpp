@@ -4,23 +4,20 @@ int ImageWindow::_count = 0;
 const double ImageWindow::_offset = 20.0;
 const double ImageWindow::_zFactor = 0.75;
 
-ImageWindow::ImageWindow() {
-	_width = _height = 0;
-	_zoom = 1.0;
-	_figNum = 0;
-	_w = NULL;
-	_t = NULL;
-	_s = NULL;
-}
-ImageWindow::ImageWindow(const Image& image) {
+ImageWindow::ImageWindow(const Image& image, bool decorate) {
 	_width = image.getWidth();
 	_height = image.getHeight();
 	_zoom = 1.0;
 	_figNum = ++_count;
 
+	// Set window style parameters
+	sf::Uint32 style;
+	if (decorate) style = sf::Style::Default;
+	else style = sf::Style::None;
+
 	// Open a window
 	_w = new sf::RenderWindow;
-	_w->create(sf::VideoMode(_width, _height), "null");
+	_w->create(sf::VideoMode(_width, _height), "null", style);
 	_w->setVerticalSyncEnabled(true);
 	updateTitle();
 	// Make sure view is centered
@@ -39,17 +36,24 @@ ImageWindow::ImageWindow(const Image& image) {
 	_s = new sf::Sprite;
 	_s->setTexture(*_t, true);
 
+	_col = sf::Color(128, 128, 128, 255);
+
 	delete [] buf; buf = NULL;
 }
-ImageWindow::ImageWindow(int width, int height, sf::Uint8* buf) {
+ImageWindow::ImageWindow(int width, int height, sf::Uint8* buf, bool decorate) {
 	_width = width;
 	_height = height;
 	_zoom = 1.0;
 	_figNum = ++_count;
 
+	// Set window style parameters
+	sf::Uint32 style;
+	if (decorate) style = sf::Style::Default;
+	else style = sf::Style::None;
+
 	// Open a window
 	_w = new sf::RenderWindow;
-	_w->create(sf::VideoMode(_width, _height), "null");
+	_w->create(sf::VideoMode(_width, _height), "null", style);
 	_w->setVerticalSyncEnabled(true);
 	updateTitle();
 	// Make sure view is centered
@@ -63,6 +67,8 @@ ImageWindow::ImageWindow(int width, int height, sf::Uint8* buf) {
 	_t->update(buf);
 	_s = new sf::Sprite;
 	_s->setTexture(*_t, true);
+
+	_col = sf::Color(128, 128, 128, 255);
 }
 ImageWindow::ImageWindow(ImageWindow&& ref) {
 	_w = NULL;
@@ -139,7 +145,7 @@ void ImageWindow::update() {
 	}
 
 	// Clear display
-	_w->clear(sf::Color(128, 128, 128, 255));
+	_w->clear(_col);
 	// Draw sprite
 	_w->draw(*_s);
 	// Swap buffers
