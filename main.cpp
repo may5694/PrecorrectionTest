@@ -208,26 +208,95 @@ int main(void) {
 	int fw = F.getWidth();
 	int fh = F.getHeight();
 
-	// Load the PSF
-	Image PSF;
-	PSF.fromBinary("psf_1.5_d10_p4.dbl");
+	std::string folder = "camera_4.0m_f22_s04_i800_2/";
+	std::string dpt = "d1.00/";
+	std::string dpt2 = "1.00d";
+	std::string img = "lenna";
+	std::stringstream ss;
 
-	// Precorrect
-	Image KtF = precorrect(F, PSF, 9.3e4);
+	// Load PSFs
+	ss << folder << "psf_" << dpt2 << "_2.2727ap_" << "1.00sf" << ".dbl";
+	Image PSF100_100; PSF100_100.fromBinary(ss.str().c_str()); ss.str("");
+	PSF100_100 = PSF100_100 / PSF100_100.sum();
+	ss << folder << "psf_" << dpt2 << "_2.2727ap_" << "0.90sf" << ".dbl";
+	Image PSF100_090; PSF100_090.fromBinary(ss.str().c_str()); ss.str("");
+	PSF100_090 = PSF100_090 / PSF100_090.sum();
+	ss << folder << "psf_" << dpt2 << "_2.2727ap_" << "0.80sf" << ".dbl";
+	Image PSF100_080; PSF100_080.fromBinary(ss.str().c_str()); ss.str("");
+	PSF100_080 = PSF100_080 / PSF100_080.sum();
+	ss << folder << "psf_" << dpt2 << "_2.2727ap_" << "0.75sf" << ".dbl";
+	Image PSF100_075; PSF100_075.fromBinary(ss.str().c_str()); ss.str("");
+	PSF100_075 = PSF100_075 / PSF100_075.sum();
+	ss << folder << "psf_" << dpt2 << "_2.2727ap_" << "0.70sf" << ".dbl";
+	Image PSF100_070; PSF100_070.fromBinary(ss.str().c_str()); ss.str("");
+	PSF100_070 = PSF100_070 / PSF100_070.sum();
+	ss << folder << "psf_" << dpt2 << "_2.2727ap_" << "0.60sf" << ".dbl";
+	Image PSF100_060; PSF100_060.fromBinary(ss.str().c_str()); ss.str("");
+	PSF100_060 = PSF100_060 / PSF100_060.sum();
+	ss << folder << "psf_" << dpt2 << "_2.2727ap_" << "0.50sf" << ".dbl";
+	Image PSF100_050; PSF100_050.fromBinary(ss.str().c_str()); ss.str("");
+	PSF100_050 = PSF100_050 / PSF100_050.sum();
+	ss << folder << "psf_" << dpt2 << "_2.2727ap_" << "0.40sf" << ".dbl";
+	Image PSF100_040; PSF100_040.fromBinary(ss.str().c_str()); ss.str("");
+	PSF100_040 = PSF100_040 / PSF100_040.sum();
+	ss << folder << "psf_" << dpt2 << "_2.2727ap_" << "0.30sf" << ".dbl";
+	Image PSF100_030; PSF100_030.fromBinary(ss.str().c_str()); ss.str("");
+	PSF100_030 = PSF100_030 / PSF100_030.sum();
+	ss << folder << "psf_" << dpt2 << "_2.2727ap_" << "0.25sf" << ".dbl";
+	Image PSF100_025; PSF100_025.fromBinary(ss.str().c_str()); ss.str("");
+	PSF100_025 = PSF100_025 / PSF100_025.sum();
+	ss << folder << "psf_" << dpt2 << "_2.2727ap_" << "0.20sf" << ".dbl";
+	Image PSF100_020; PSF100_020.fromBinary(ss.str().c_str()); ss.str("");
+	PSF100_020 = PSF100_020 / PSF100_020.sum();
+	ss << folder << "psf_" << dpt2 << "_2.2727ap_" << "0.10sf" << ".dbl";
+	Image PSF100_010; PSF100_010.fromBinary(ss.str().c_str()); ss.str("");
+	PSF100_010 = PSF100_010 / PSF100_010.sum();
+
+	// Convolve original image
+	Image KF100 = convolve(F, PSF100_100, BC_PERIODIC);
+	ss << folder << img << "_conv_1.00sf.png";
+	saveImage(KF100, ss.str().c_str()); ss.str("");
+	Image KF090 = convolve(F, PSF100_090, BC_PERIODIC);
+	ss << folder << img << "_conv_0.90sf.png";
+	saveImage(KF090, ss.str().c_str()); ss.str("");
+	Image KF080 = convolve(F, PSF100_080, BC_PERIODIC);
+	ss << folder << img << "_conv_0.80sf.png";
+	saveImage(KF080, ss.str().c_str()); ss.str("");
+	Image KF075 = convolve(F, PSF100_075, BC_PERIODIC);
+	ss << folder << img << "_conv_0.75sf.png";
+	saveImage(KF075, ss.str().c_str()); ss.str("");
+	Image KF070 = convolve(F, PSF100_070, BC_PERIODIC);
+	ss << folder << img << "_conv_0.70sf.png";
+	saveImage(KF070, ss.str().c_str()); ss.str("");
+	Image KF060 = convolve(F, PSF100_060, BC_PERIODIC);
+	ss << folder << img << "_conv_0.60sf.png";
+	saveImage(KF060, ss.str().c_str()); ss.str("");
+	Image KF050 = convolve(F, PSF100_050, BC_PERIODIC);
+	ss << folder << img << "_conv_0.50sf.png";
+	saveImage(KF050, ss.str().c_str()); ss.str("");
+	Image KF040 = convolve(F, PSF100_040, BC_PERIODIC);
+	ss << folder << img << "_conv_0.40sf.png";
+	saveImage(KF040, ss.str().c_str()); ss.str("");
+	Image KF030 = convolve(F, PSF100_030, BC_PERIODIC);
+	ss << folder << img << "_conv_0.30sf.png";
+	saveImage(KF030, ss.str().c_str()); ss.str("");
+	Image KF025 = convolve(F, PSF100_025, BC_PERIODIC);
+	ss << folder << img << "_conv_0.25sf.png";
+	saveImage(KF025, ss.str().c_str()); ss.str("");
+	Image KF020 = convolve(F, PSF100_020, BC_PERIODIC);
+	ss << folder << img << "_conv_0.20sf.png";
+	saveImage(KF020, ss.str().c_str()); ss.str("");
+	Image KF010 = convolve(F, PSF100_010, BC_PERIODIC);
+	ss << folder << img << "_conv_0.10sf.png";
+	saveImage(KF010, ss.str().c_str()); ss.str("");
 
 	connectToFirstCamera();
-
-	ImageWindow* w = showFullscreenImage(KtF);
+	ImageWindow* w = showFullscreenImage(F);
 	w->update();
-
 	sf::sleep(sf::seconds(1.0));
-	takeAPicture("camera_lenna_prec_blur_0.5_40.jpg");
-
+	ss << folder << img << "_cam.jpg";
+	takeAPicture(ss.str().c_str()); ss.str("");
 	disconFromFirstCamera();
-
-	// Convolve image
-	Image KKtF = convolve(KtF, PSF, BC_PERIODIC);
-	showImage(KKtF, 0, 0, "KKtF");
 
 	loop();
 
