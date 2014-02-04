@@ -212,10 +212,60 @@ int main(void) {
 		.resize(w, (3 * h / 4), 1.0)
 		.resize(w, h, 0.0);
 
-	ImageWindow* win = showImage(vlines, -200, 0);
-	win->zoom(-3);
-	win = showImage(hlines, 200, 0);
-	win->zoom(-3);
+	float diopters = 1.0f;
+	float blurThreshold = 4.0f / 255.0f;
+	std::stringstream ss; ss.precision(2);
+	std::string folder = "camera_4.0m_f22_2/";
+	ss << std::fixed << diopters << "d/";
+	std::string dptfolder = ss.str(); ss.str("");
+	ss << "psf_" << std::fixed << diopters << "d_2.2727ap_";
+	std::string psfprefix = ss.str(); ss.str("");
+	std::string psfsuffix = "sf.dbl";
+
+	//connectToFirstCamera();
+
+	//// Take picture of vertical lines
+	//ImageWindow* win = showFullscreenImage(vlines);
+	//win->update();
+	//sf::sleep(sf::milliseconds(500));
+	//ss << folder << dptfolder << "vlines_cam.jpg";
+	//takeAPicture(ss.str().c_str()); ss.str("");
+
+	//// Take a picture of horizontal lines
+	//win = showFullscreenImage(hlines);
+	//win->update();
+	//sf::sleep(sf::milliseconds(500));
+	//ss << folder << dptfolder << "hlines_cam.jpg";
+	//takeAPicture(ss.str().c_str()); ss.str("");
+
+	//disconFromFirstCamera();
+
+	// Create an array of PSF sizes to test
+	std::vector<float> sf;
+	float min = 1.9f;
+	float max = 2.1f;
+	float step = 0.02f;
+	for (float s = min; (max + step) - s > FLT_EPSILON; s += step) { sf.push_back(s); }
+
+	// Loop through each PSF size
+	for (auto ii = sf.begin(); ii != sf.end(); ii++) {
+		std::cout << "Scale factor: " << *ii << std::endl;
+
+		// Load PSF
+		ss << folder << dptfolder << psfprefix << std::fixed << *ii << psfsuffix;
+		Image PSF; PSF.fromBinary(ss.str().c_str()); ss.str("");
+		PSF = PSF / PSF.sum();	// Normalize PSF sum
+
+		// Convolve vertical and horizontal lines
+		Image Kvlines = convolve(vlines, PSF, BC_PERIODIC);
+		Image Khlines = convolve(hlines, PSF, BC_PERIODIC);
+
+		// Save convolved images
+		ss << folder << dptfolder << "vlines_conv_" << std::fixed << *ii << "sf.png";
+		saveImage(Kvlines, ss.str()); ss.str("");
+		ss << folder << dptfolder << "hlines_conv_" << std::fixed << *ii << "sf.png";
+		saveImage(Khlines, ss.str()); ss.str("");
+	}
 
 	loop();
 
