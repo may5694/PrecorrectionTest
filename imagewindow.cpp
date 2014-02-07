@@ -9,6 +9,7 @@ ImageWindow::ImageWindow(const Image& image, bool decorate) {
 	_height = image.getHeight();
 	_zoom = 1.0;
 	_figNum = ++_count;
+	_showHistCDF = false;
 
 	// Set window style parameters
 	sf::Uint32 style;
@@ -36,6 +37,26 @@ ImageWindow::ImageWindow(const Image& image, bool decorate) {
 	_s = new sf::Sprite;
 	_s->setTexture(*_t, true);
 
+	// Load histogram and cdf information
+	std::vector<double> hist = image.histogram();
+	double histmax = *std::max_element(hist.begin(), hist.end());
+	for (auto it = hist.begin(); it != hist.end(); it++) {
+		sf::RectangleShape rect;
+		rect.setFillColor(sf::Color::Red);
+		rect.setSize(sf::Vector2f(512.0f / hist.size(), *it / histmax * 512.0f));
+		rect.setOrigin(0.0f, rect.getSize().y);
+		rect.setPosition(std::distance(hist.begin(), it) * rect.getSize().x, 512.0f);
+		_hist.push_back(std::move(rect));
+	}
+	std::vector<double> cdf = image.cdf();
+	_cdf = sf::VertexArray(sf::LinesStrip, cdf.size() + 1);
+	_cdf[0].position = sf::Vector2f(0.0f, 512.0f);
+	_cdf[0].color = sf::Color::Green;
+	for (int i = 1; i < _cdf.getVertexCount(); i++) {
+		_cdf[i].position = sf::Vector2f(i / 256.0f * 512.0f, 512.0f - (cdf[i-1] * 512.0f));
+		_cdf[i].color = sf::Color::Green;
+	}
+
 	_col = sf::Color(128, 128, 128, 255);
 
 	delete [] buf; buf = NULL;
@@ -45,6 +66,7 @@ ImageWindow::ImageWindow(int width, int height, sf::Uint8* buf, bool decorate) {
 	_height = height;
 	_zoom = 1.0;
 	_figNum = ++_count;
+	_showHistCDF = false;
 
 	// Set window style parameters
 	sf::Uint32 style;
@@ -67,6 +89,29 @@ ImageWindow::ImageWindow(int width, int height, sf::Uint8* buf, bool decorate) {
 	_t->update(buf);
 	_s = new sf::Sprite;
 	_s->setTexture(*_t, true);
+
+	// Create an image for histogram and cdf information
+	Image image; image.fromUchar(width, height, 4, 0x7, buf);
+
+	// Load histogram and cdf information
+	std::vector<double> hist = image.histogram();
+	double histmax = *std::max_element(hist.begin(), hist.end());
+	for (auto it = hist.begin(); it != hist.end(); it++) {
+		sf::RectangleShape rect;
+		rect.setFillColor(sf::Color::Red);
+		rect.setSize(sf::Vector2f(512.0f / hist.size(), *it / histmax * 512.0f));
+		rect.setOrigin(0.0f, rect.getSize().y);
+		rect.setPosition(std::distance(hist.begin(), it) * rect.getSize().x, 512.0f);
+		_hist.push_back(std::move(rect));
+	}
+	std::vector<double> cdf = image.cdf();
+	_cdf = sf::VertexArray(sf::LinesStrip, cdf.size() + 1);
+	_cdf[0].position = sf::Vector2f(0.0f, 512.0f);
+	_cdf[0].color = sf::Color::Green;
+	for (int i = 1; i < _cdf.getVertexCount(); i++) {
+		_cdf[i].position = sf::Vector2f(i / 256.0f * 512.0f, 512.0f - (cdf[i-1] * 512.0f));
+		_cdf[i].color = sf::Color::Green;
+	}
 
 	_col = sf::Color(128, 128, 128, 255);
 }
@@ -114,6 +159,8 @@ void ImageWindow::update() {
 			case sf::Keyboard::Subtract:
 				zoomOut();
 				break;
+			case sf::Keyboard::H:
+				showHistCDF(!_showHistCDF);
 			}
 			break;
 		case sf::Event::KeyPressed:
@@ -148,6 +195,14 @@ void ImageWindow::update() {
 	_w->clear(_col);
 	// Draw sprite
 	_w->draw(*_s);
+
+	if (_showHistCDF) {
+		for (auto it = _hist.begin(); it != _hist.end(); it++) {
+			_w->draw(*it);
+		}
+		_w->draw(_cdf);
+	}
+
 	// Swap buffers
 	_w->display();
 }

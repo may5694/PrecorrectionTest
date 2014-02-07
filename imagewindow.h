@@ -21,6 +21,9 @@ public:
 		swap(first._height, second._height);
 		swap(first._zoom, second._zoom);
 		swap(first._figNum, second._figNum);
+		swap(first._showHistCDF, second._showHistCDF);
+		swap(first._hist, second._hist);
+		swap(first._cdf, second._cdf);
 	}
 
 	void update();	// Handles events and draws the window
@@ -44,6 +47,7 @@ public:
 	void zoom(int times);
 	void zoomIn(int times = 1) { zoom(times); }
 	void zoomOut(int times = 1) { zoom(-times); }
+	void showHistCDF(bool show) { _showHistCDF = show; }
 private:
 	// Disable copying
 	ImageWindow(const ImageWindow& ref);		// Copy constructor -- NOT IMPLEMENTED
@@ -58,6 +62,9 @@ private:
 	int _width, _height;	// Dimensions of the image
 	double _zoom;			// Current zoom level
 	int _figNum;			// Figure number
+	bool _showHistCDF;		// Whether to show the histogram and CDF
+	std::vector<sf::RectangleShape> _hist;	// Histogram rectangles
+	sf::VertexArray _cdf;					// CDF
 	// Static members
 	static int _count;				// Number of windows
 	static const double _offset;	// How much to translate image by
