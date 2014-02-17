@@ -6,5 +6,6 @@
 *.log
 camxform
 camgamma
+camalign
 Debug/
 Release/

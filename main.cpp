@@ -67,7 +67,7 @@ ImageWindow* showFullscreenImage(const Image& image) {
 	windowList.push_back(std::move(w));
 	return &windowList.back();
 }
-Image xformCaptured(const Image& captured, int w, int h, std::string xformFile) {
+Image alignCaptured(const Image& captured, int w, int h, std::string xformFile) {
 	// Read in transform matrix
 	FILE* fp = fopen(xformFile.c_str(), "rb");
 	if (!fp) throw -1;
@@ -288,17 +288,37 @@ void test2(const Image& F, const Image& PSF) {
 	showGrid();
 }
 
+// Structure to hold PSF creation parameters along with test result
+struct PSFParm {
+	PSFParm(double pdpt, double pap, double psf, double pmse) :
+		dpt(pdpt), ap(pap), sf(psf), mse(pmse) {}
+	double dpt;		// Diopter power of PSF
+	double ap;		// Pupil diameter
+	double sf;		// Scale factor
+	double mse;		// MSE of convolved test image against captured test image
+};
+// Functor to compare the MSE of two PSFParm objects
+class PSFCmp {
+public:
+	bool operator() (const PSFParm& lhs, const PSFParm& rhs) const {
+		return lhs.mse > rhs.mse;	// Reverse order so smallest MSE at front
+	}
+};
+
 int w = 1280, h = 1024;
+double dpt_cam = 2.00;
 std::stringstream ss;
-std::string topfolder = "camcalib_0/";
-std::string imgprefix = "calib";
-std::string alignfname = "camxform";
-std::string gammafname = "camgamma";
+std::string topfolder;
+std::string calibfolder = "calib/";
+std::string psffolder = "psf/";
+std::string imgprefix = "letters";
+std::string alignfname;
+std::string gammafname;
 
 void alignCam() {
-	ss << topfolder << "align_16.png";
+	ss << topfolder << calibfolder << "align_16.png";
 	std::string alignName = ss.str(); ss.str("");
-	ss << topfolder << "align_16_cam.png";
+	ss << topfolder << calibfolder << "align_16_cam.png";
 	std::string alignCamName = ss.str(); ss.str("");
 
 	// Create an alignment image
@@ -328,7 +348,7 @@ void alignCam() {
 
 	// Now generate transform information with Matlab!
 }
-std::map<double, double> calibCam() {
+void calibCam() {
 	connectToFirstCamera();
 
 	// Create a mapping from display intensity to camera intensity
@@ -342,7 +362,7 @@ std::map<double, double> calibCam() {
 		// Take a picture of the displayed image
 		showFullscreenImage(disp);
 		sf::sleep(sf::seconds(0.1f));
-		ss << topfolder << imgprefix << "_"
+		ss << topfolder << calibfolder << "calib_"
 			<< std::setprecision(3) << std::fixed << i << ".png";
 		std::string camfname = ss.str(); ss.str("");
 		takeAPicture(camfname.c_str());
@@ -350,8 +370,7 @@ std::map<double, double> calibCam() {
 		Image cam; cam.fromUchar(cam_i.getSize().x, cam_i.getSize().y, 4, 0x7, cam_i.getPixelsPtr());
 
 		// Crop the image and save over captured image
-		ss << topfolder << alignfname;
-		cam = xformCaptured(cam, w / 2, h / 2, ss.str()); ss.str("");
+		cam = alignCaptured(cam, w / 2, h / 2, alignfname);
 		saveImage(cam, camfname);
 
 		// Save the average intensity value in the map
@@ -365,8 +384,7 @@ std::map<double, double> calibCam() {
 	disconFromFirstCamera();
 
 	// Write camera gamma curve to file
-	ss << topfolder << gammafname;
-	FILE* fp = fopen(ss.str().c_str(), "wb"); ss.str("");
+	FILE* fp = fopen(gammafname.c_str(), "wb");
 	if (!fp) exit(-1);
 	int size = camToDisp.size();
 	fwrite(&size, sizeof(int), 1, fp);
@@ -376,39 +394,251 @@ std::map<double, double> calibCam() {
 		fwrite(&v, sizeof(double), 1, fp);
 	}
 	fclose(fp);
-
-	return camToDisp;
 }
 
 int main(void) {
-	ss << topfolder << alignfname;
-	std::string camxformName = ss.str(); ss.str("");
-	ss << topfolder << gammafname;
-	std::string camgammaName = ss.str(); ss.str("");
+	ss << "camera_2.0m_f22_" << std::setprecision(2) << std::fixed << dpt_cam << "d_0/";
+	topfolder = ss.str(); ss.str("");
+	ss << topfolder << "camalign";
+	alignfname = ss.str(); ss.str("");
+	ss << topfolder << "camgamma";
+	gammafname = ss.str(); ss.str("");
 
-	// Load lenna
-	ss << topfolder << "lenna.png";
-	sf::Image Fi; Fi.loadFromFile(ss.str()); ss.str("");
-	Image F; F.fromUchar(Fi.getSize().x, Fi.getSize().y, 4, 0x7, Fi.getPixelsPtr());
+	bool loadF = true;				// Whether to load the image to test
+	bool searchPSF = false;			// Whether to search the PSF space (else use predefined params)
+	bool saveAllTests = false;		// Whether to save all PSF tests (careful with this one!)
+	bool loadprec = false;			// Whether to load the precorrections
+	bool usegrad = true;			// Whether to use the gradient in PSF testing
+	bool align = false;				// Align the camera (don't do anything else)
+	bool calib = false;				// Calibrate the camera (don't do anything else)
 
-	// Display and capture lenna
+	// Align the camera
+	if (align) {
+		alignCam();
+		loop();
+		return 0;
+	}
+	// Calibrate the camera intensity
+	if (calib) {
+		calibCam();
+		return 0;
+	}
+
+	// Load or generate the test image
+	Image F;
+	ss << topfolder << imgprefix << ".png";
+	if (!loadF) {
+		int w = 1280, h = 1024;
+		Image X((w / 4) - 1, h, 0.0);
+		X = X.resize((w / 4), h, 1.0)
+			.resize((3 * w / 4) - 1, h, 0.0)
+			.resize((3 * w / 4), h, 1.0)
+			.resize(w, h, 0.0);
+		Image Y(w, (h / 4) - 1, 0.0);
+		Y = Y.resize(w, (h / 4), 1.0)
+			.resize(w, (3 * h / 4) - 1, 0.0)
+			.resize(w, (3 * h / 4), 1.0)
+			.resize(w, h, 0.0);
+		F = std::move(X);
+		F += Y;
+		F = F.clip();
+
+		saveImage(F, ss.str()); ss.str("");
+	} else {
+		sf::Image img; img.loadFromFile(ss.str()); ss.str("");
+		F.fromUchar(img.getSize().x, img.getSize().y, 4, 0x7, img.getPixelsPtr());
+	}
+
+	// Capture the test image
 	connectToFirstCamera();
 	showFullscreenImage(F);
-	sf::sleep(sf::seconds(0.1f));
-	ss << topfolder << "lenna_cam.png";
+	sf::sleep(sf::seconds(1.0f));
+	ss << topfolder << imgprefix << "_cam.png";
 	takeAPicture(ss.str().c_str());
 	disconFromFirstCamera();
 
-	// Load captured image and crop
-	Fi.loadFromFile(ss.str());
-	Image Fcap; Fcap.fromUchar(Fi.getSize().x, Fi.getSize().y, 4, 0x7, Fi.getPixelsPtr());
-	Fcap = xformCaptured(Fcap, F.getWidth(), F.getHeight(), camxformName);
+	// Load, then transform and crop the captured image
+	sf::Image img; img.loadFromFile(ss.str()); ss.str("");
+	Image Fcap; Fcap.fromUchar(img.getSize().x, img.getSize().y, 4, 0x7, img.getPixelsPtr());
+	Fcap = alignCaptured(Fcap, F.getWidth(), F.getHeight(), alignfname);
+	ss << topfolder << imgprefix << "_cam.png";
 	saveImage(Fcap, ss.str()); ss.str("");
 
-	// Gamma-correct image to display space
-	Fcap = correctGamma(Fcap, camgammaName);
-	ss << topfolder << "lenna_cam_gam.png";
+	// Gamma-correct captured image
+	Fcap = correctGamma(Fcap, gammafname);
+	ss << topfolder << imgprefix << "_cam_gam.png";
 	saveImage(Fcap, ss.str()); ss.str("");
+
+
+	/////////////////////////////////// SEARCH PSFS ///////////////////////////////////
+
+	double dpt_best = 2.0;
+	double ap_best = 5.4;
+	double sf_best = 0.7;
+	double mse = 0.0;
+	if (searchPSF) {
+		// Create a priority queue to hold the smallest MSE
+		std::priority_queue<PSFParm, std::vector<PSFParm>, PSFCmp> pqueue;
+
+		std::cout << "Diopters\tAperture\tScale\t\tMSE" << std::endl;
+		double dpt_min = 1.2;	double ap_min = 5.2;		double sf_min = 0.5;
+		double dpt_max = 3.0;	double ap_max = 7.0;		double sf_max = 1.4;
+		double dpt_step = 0.2;	double ap_step = 0.2;		double sf_step = 0.1;
+		for (int i_dpt = 0; i_dpt < (int)((dpt_max + dpt_step - dpt_min) / dpt_step + 0.5); i_dpt++) {
+			double dpt_psf = dpt_min + i_dpt * dpt_step;
+			for (int i_ap = 0; i_ap < (int)((ap_max + ap_step - ap_min) / ap_step + 0.5); i_ap++) {
+				double ap_psf = ap_min + i_ap * ap_step;
+				for (int i_sf = 0; i_sf < (int)((sf_max + sf_step - sf_min) / sf_step + 0.5); i_sf++) {
+					double sf_psf = sf_min + i_sf * sf_step;
+
+					ss << std::setprecision(2) << std::fixed << dpt_psf << "d_"
+						<< std::setprecision(4) << std::fixed << ap_psf << "ap_"
+						<< std::setprecision(2) << std::fixed << sf_psf << "sf";
+					std::string params = ss.str(); ss.str("");
+
+					// Load the PSF
+					ss << psffolder << "psf_" << params << ".dbl";
+					Image PSF; PSF.fromBinary(ss.str().c_str()); ss.str("");
+
+					// Convolve the original image
+					Image KF = convolve(F, PSF, BC_PERIODIC);
+					if (saveAllTests) {
+						ss << topfolder << imgprefix << "_" << params << "_conv.png";
+						saveImage(KF, ss.str()); ss.str("");
+					}
+
+					// Calculate MSE and output
+					double KFMSE;
+					if (usegrad) {
+						Image grad = ((KF.diffX(BC_PERIODIC) ^ 2) + (KF.diffY(BC_PERIODIC) ^ 2)).sqrt();
+						KFMSE = (((KF - Fcap) ^ 2) * grad.scale()).sum() / (KF.getArraySize());
+					} else {
+						KFMSE = ((KF - Fcap) ^ 2).sum() / (KF.getArraySize());
+					}
+					std::cout << std::setprecision(2) << std::fixed << dpt_psf << "d\t\t"
+						<< std::setprecision(4) << std::fixed << ap_psf << "ap\t"
+						<< std::setprecision(2) << std::fixed << sf_psf << "sf\t\t"
+						<< std::setprecision(8) << std::fixed << KFMSE << std::endl;
+
+					// Create a PSFParm and add it to the priority queue
+					PSFParm psfparm(dpt_psf, ap_psf, sf_psf, KFMSE);
+					pqueue.push(psfparm);
+				}
+			}
+		}
+
+		// Get parameters for smallest MSE value
+		const PSFParm& psfparm = pqueue.top();
+		dpt_best = psfparm.dpt;
+		ap_best = psfparm.ap;
+		sf_best = psfparm.sf;
+		mse = psfparm.mse;
+	}
+
+	// Get PSF parameters into a string
+	ss << std::setprecision(2) << std::fixed << dpt_best << "d_"
+		<< std::setprecision(4) << std::fixed << ap_best << "ap_"
+		<< std::setprecision(2) << std::fixed << sf_best << "sf";
+	std::string params = ss.str(); ss.str("");
+
+	// Load the PSF
+	ss << psffolder << "psf_" << params << ".dbl";
+	Image PSF; PSF.fromBinary(ss.str().c_str()); ss.str("");
+
+	// Convolve the original image
+	Image KF = convolve(F, PSF, BC_PERIODIC);
+	if (!saveAllTests || !searchPSF) {
+		ss << topfolder << imgprefix << "_" << params << "_conv.png";
+		saveImage(KF, ss.str()); ss.str("");
+	}
+
+	// Output MSE
+	std::cout << std::endl << "Best:" << std::endl
+		<< std::setprecision(2) << std::fixed << dpt_best << "d\t\t"
+		<< std::setprecision(4) << std::fixed << ap_best << "ap\t"
+		<< std::setprecision(2) << std::fixed << sf_best << "sf\t\t"
+		<< std::setprecision(8) << std::fixed << mse << std::endl;
+
+
+
+	////////////////////////////// PRECORRECT //////////////////////////////
+
+	Image KtF_L1, KtF_L2;
+	ss << topfolder << imgprefix << "_" << params << "_prec_L1.png";
+	std::string KtF_L1_str = ss.str(); ss.str("");
+	ss << topfolder << imgprefix << "_" << params << "_prec_L1_conv.png";
+	std::string KtF_L1_conv_str = ss.str(); ss.str("");
+	ss << topfolder << imgprefix << "_" << params << "_prec_L2.png";
+	std::string KtF_L2_str = ss.str(); ss.str("");
+	ss << topfolder << imgprefix << "_" << params << "_prec_L2_conv.png";
+	std::string KtF_L2_conv_str = ss.str(); ss.str("");
+
+	if (!loadprec) {
+		// Precorrect the test image
+		Options opts; opts.tv = TVL1;
+		KtF_L1 = precorrect(F, PSF, 9.3e4, opts);
+		saveImage(KtF_L1, KtF_L1_str);
+
+		opts.tv = TVL2;
+		KtF_L2 = precorrect(F, PSF, 9.3e4, opts);
+		saveImage(KtF_L2, KtF_L2_str);
+	} else {
+		img.loadFromFile(KtF_L1_str);
+		KtF_L1.fromUchar(img.getSize().x, img.getSize().y, 4, 0x7, img.getPixelsPtr());
+
+		img.loadFromFile(KtF_L2_str);
+		KtF_L2.fromUchar(img.getSize().x, img.getSize().y, 4, 0x7, img.getPixelsPtr());
+	}
+
+	// Convolve precorrections
+	Image KKtF_L1 = convolve(KtF_L1, PSF, BC_PERIODIC);
+	saveImage(KKtF_L1, KtF_L1_conv_str);
+
+	Image KKtF_L2 = convolve(KtF_L2, PSF, BC_PERIODIC);
+	saveImage(KKtF_L2, KtF_L2_conv_str);
+
+
+	///////////////////////////////////// CAPTURE PRECORRECTIONS /////////////////////
+
+	ss << topfolder << imgprefix << "_" << params << "_prec_L1_cam.png";
+	std::string KtF_L1_cam_str = ss.str(); ss.str("");
+	ss << topfolder << imgprefix << "_" << params << "_prec_L1_cam_gam.png";
+	std::string KtF_L1_cam_gam_str = ss.str(); ss.str("");
+	ss << topfolder << imgprefix << "_" << params << "_prec_L2_cam.png";
+	std::string KtF_L2_cam_str = ss.str(); ss.str("");
+	ss << topfolder << imgprefix << "_" << params << "_prec_L2_cam_gam.png";
+	std::string KtF_L2_cam_gam_str = ss.str(); ss.str("");
+
+	// Display precorrected images and capture
+	connectToFirstCamera();
+	showFullscreenImage(KtF_L1);
+	sf::sleep(sf::seconds(1.0f));
+	takeAPicture(KtF_L1_cam_str.c_str());
+
+	showFullscreenImage(KtF_L2);
+	sf::sleep(sf::seconds(1.0f));
+	takeAPicture(KtF_L2_cam_str.c_str());
+	disconFromFirstCamera();
+
+	// Load, align, and gamma-correct captured precorrections
+	img.loadFromFile(KtF_L1_cam_str);
+	Image KtF_L1_cam; KtF_L1_cam.fromUchar(img.getSize().x, img.getSize().y, 4, 0x7, img.getPixelsPtr());
+	KtF_L1_cam = alignCaptured(KtF_L1_cam, F.getWidth(), F.getHeight(), alignfname);
+	saveImage(KtF_L1_cam, KtF_L1_cam_str);
+	KtF_L1_cam = correctGamma(KtF_L1_cam, gammafname);
+	saveImage(KtF_L1_cam, KtF_L1_cam_gam_str);
+
+	img.loadFromFile(KtF_L2_cam_str);
+	Image KtF_L2_cam; KtF_L2_cam.fromUchar(img.getSize().x, img.getSize().y, 4, 0x7, img.getPixelsPtr());
+	KtF_L2_cam = alignCaptured(KtF_L2_cam, F.getWidth(), F.getHeight(), alignfname);
+	saveImage(KtF_L2_cam, KtF_L2_cam_str);
+	KtF_L2_cam = correctGamma(KtF_L2_cam, gammafname);
+	saveImage(KtF_L2_cam, KtF_L2_cam_gam_str);
+
+
+	std::cout << "Done!" << std::endl;
+
+	loop();
 
 	return 0;
 }
