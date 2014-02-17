@@ -1,5 +1,7 @@
 #include <list>
+#include <queue>
 #include <iostream>
+#include <iomanip>
 #include "precorrection.h"
 #include "JNB.h"
 #include "imagewindow.h"
@@ -8,7 +10,7 @@
 std::list<ImageWindow> windowList;
 std::vector<Image> imageVec;
 std::vector<std::string> titleVec;
-int rows = 1, cols = 1, imw = 0, imh = 0;
+int rows = 1, cols = 1, imw = 120, imh = 0;
 
 void saveImage(const Image& image, const std::string& filename) {
 	// Convert Image to RGBA8
@@ -36,6 +38,7 @@ ImageWindow* showImage(const Image& image, int dx = 0, int dy = 0, const std::st
 	ImageWindow w(image, true);
 	w.setTitle(title);
 	w.move(dx, dy);
+	w.update();
 	windowList.push_back(std::move(w));
 	return &windowList.back();
 }
@@ -49,6 +52,7 @@ ImageWindow* showColorImage(const Image& r, const Image& g, const Image& b, int 
 	ImageWindow w(r.getWidth(), r.getHeight(), buf);
 	w.setTitle(title);
 	w.move(dx, dy);
+	w.update();
 	windowList.push_back(std::move(w));
 	return &windowList.back();
 
@@ -59,8 +63,50 @@ ImageWindow* showFullscreenImage(const Image& image) {
 	w.position(1680, 0);
 	w.resize(1280, 1024);
 	w.setColor(0, 0, 0);
+	w.update();
 	windowList.push_back(std::move(w));
 	return &windowList.back();
+}
+Image xformCaptured(const Image& captured, int w, int h, std::string xformFile) {
+	// Read in transform matrix
+	FILE* fp = fopen(xformFile.c_str(), "rb");
+	if (!fp) throw -1;
+	int sw, sh;
+	double xformMtx [9];
+	fread(&sw, sizeof(int), 1, fp);
+	fread(&sh, sizeof(int), 1, fp);
+	int numRead = fread(xformMtx, sizeof(double), 9, fp);
+	if (numRead < 9) { fclose(fp); throw -1; }
+	fclose(fp);
+
+	// Copy input image to a GPU texture
+	sf::Uint8* buf = new sf::Uint8 [captured.getArraySize() * 4];
+	captured.toUchar(4, 0x7, buf, true);
+	sf::Texture capTex; capTex.create(captured.getWidth(), captured.getHeight());
+	capTex.update(buf); delete [] buf; buf = NULL;
+	// Create a sprite for the captured image
+	sf::Sprite s; s.setTexture(capTex);
+
+	// Create transformation from camera to monitor
+	sf::Transform t1(xformMtx[0], xformMtx[1], xformMtx[2],
+					 xformMtx[3], xformMtx[4], xformMtx[5],
+					 xformMtx[6], xformMtx[7], xformMtx[8]);
+	// Create transformation from monitor to image
+	sf::Transform t2 = sf::Transform::Identity;
+	t2.translate(-(sw - w) / 2.0, -(sh - h) / 2.0);
+	// Combine the two transforms
+	sf::Transform t = t2 * t1;
+
+	// Create a new render texture for the transformed captured image
+	sf::RenderTexture rt; rt.create(w, h);
+	rt.clear();
+	rt.draw(s, t);
+	rt.display();
+
+	// Copy transformed image to an output image and return it
+	sf::Image capXform = rt.getTexture().copyToImage();
+	Image out; out.fromUchar(capXform.getSize().x, capXform.getSize().y, 4, 0x7, capXform.getPixelsPtr());
+	return out;
 }
 void addImageToGrid(const Image& image, const std::string& title = "") {
 	if (image.getWidth() > imw) imw = image.getWidth();
@@ -198,74 +244,256 @@ void test2(const Image& F, const Image& PSF) {
 	showGrid();
 }
 
-int main(void) {
-	// Create vertical and horizontal lines
-	int w = 1280, h = 1024;
-	Image vlines((w / 4) - 1, h, 0.0);
-	vlines = vlines.resize((w / 4), h, 1.0)
-		.resize((3 * w / 4) - 1, h, 0.0)
-		.resize((3 * w / 4), h, 1.0)
-		.resize(w, h, 0.0);
-	Image hlines(w, (h / 4) - 1, 0.0);
-	hlines = hlines.resize(w, (h / 4), 1.0)
-		.resize(w, (3 * h / 4) - 1, 0.0)
-		.resize(w, (3 * h / 4), 1.0)
-		.resize(w, h, 0.0);
-
-	float diopters = 1.0f;
-	float blurThreshold = 4.0f / 255.0f;
-	std::stringstream ss; ss.precision(2);
-	std::string folder = "camera_4.0m_f22_2/";
-	ss << std::fixed << diopters << "d/";
-	std::string dptfolder = ss.str(); ss.str("");
-	ss << "psf_" << std::fixed << diopters << "d_2.2727ap_";
-	std::string psfprefix = ss.str(); ss.str("");
-	std::string psfsuffix = "sf.dbl";
-
-	//connectToFirstCamera();
-
-	//// Take picture of vertical lines
-	//ImageWindow* win = showFullscreenImage(vlines);
-	//win->update();
-	//sf::sleep(sf::milliseconds(500));
-	//ss << folder << dptfolder << "vlines_cam.jpg";
-	//takeAPicture(ss.str().c_str()); ss.str("");
-
-	//// Take a picture of horizontal lines
-	//win = showFullscreenImage(hlines);
-	//win->update();
-	//sf::sleep(sf::milliseconds(500));
-	//ss << folder << dptfolder << "hlines_cam.jpg";
-	//takeAPicture(ss.str().c_str()); ss.str("");
-
-	//disconFromFirstCamera();
-
-	// Create an array of PSF sizes to test
-	std::vector<float> sf;
-	float min = 1.9f;
-	float max = 2.1f;
-	float step = 0.02f;
-	for (float s = min; (max + step) - s > FLT_EPSILON; s += step) { sf.push_back(s); }
-
-	// Loop through each PSF size
-	for (auto ii = sf.begin(); ii != sf.end(); ii++) {
-		std::cout << "Scale factor: " << *ii << std::endl;
-
-		// Load PSF
-		ss << folder << dptfolder << psfprefix << std::fixed << *ii << psfsuffix;
-		Image PSF; PSF.fromBinary(ss.str().c_str()); ss.str("");
-		PSF = PSF / PSF.sum();	// Normalize PSF sum
-
-		// Convolve vertical and horizontal lines
-		Image Kvlines = convolve(vlines, PSF, BC_PERIODIC);
-		Image Khlines = convolve(hlines, PSF, BC_PERIODIC);
-
-		// Save convolved images
-		ss << folder << dptfolder << "vlines_conv_" << std::fixed << *ii << "sf.png";
-		saveImage(Kvlines, ss.str()); ss.str("");
-		ss << folder << dptfolder << "hlines_conv_" << std::fixed << *ii << "sf.png";
-		saveImage(Khlines, ss.str()); ss.str("");
+// Structure to hold PSF creation parameters along with test result
+struct PSFParm {
+	PSFParm(double pdpt, double pap, double psf, double pmse) :
+		dpt(pdpt), ap(pap), sf(psf), mse(pmse) {}
+	double dpt;		// Diopter power of PSF
+	double ap;		// Pupil diameter
+	double sf;		// Scale factor
+	double mse;		// MSE of convolved test image against captured test image
+};
+// Functor to compare the MSE of two PSFParm objects
+class PSFCmp {
+public:
+	bool operator() (const PSFParm& lhs, const PSFParm& rhs) const {
+		return lhs.mse > rhs.mse;	// Reverse order so smallest MSE at front
 	}
+};
+
+int main(void) {
+	double dpt_cam = 2.00;
+	std::stringstream ss;
+	std::string topfolder = "camera_2.0m_f22_7/";
+	ss << std::setprecision(2) << std::fixed << dpt_cam << "d/";
+	std::string dptfolder = ss.str(); ss.str("");
+	std::string psffolder = "psf/";
+	std::string imgprefix = "lenna";
+	bool loadF = true;
+	bool searchPSF = true;
+	bool loadprec = false;
+	bool equalize = true;
+	bool usegrad = true;
+
+	Image F;
+	ss << topfolder << dptfolder << imgprefix << ".png";
+	if (!loadF) {
+		int w = 1280, h = 1024;
+		Image X((w / 4) - 1, h, 0.0);
+		X = X.resize((w / 4), h, 1.0)
+			.resize((3 * w / 4) - 1, h, 0.0)
+			.resize((3 * w / 4), h, 1.0)
+			.resize(w, h, 0.0);
+		Image Y(w, (h / 4) - 1, 0.0);
+		Y = Y.resize(w, (h / 4), 1.0)
+			.resize(w, (3 * h / 4) - 1, 0.0)
+			.resize(w, (3 * h / 4), 1.0)
+			.resize(w, h, 0.0);
+		F = std::move(X);
+		F += Y;
+		F = F.clip();
+
+		saveImage(F, ss.str()); ss.str("");
+	} else {
+		sf::Image img; img.loadFromFile(ss.str()); ss.str("");
+		F.fromUchar(img.getSize().x, img.getSize().y, 4, 0x7, img.getPixelsPtr());
+	}
+
+	// Capture the test image
+	connectToFirstCamera();
+	showFullscreenImage(F);
+	sf::sleep(sf::seconds(1.0f));
+	ss << topfolder << dptfolder << imgprefix << "_cam.jpg";
+	takeAPicture(ss.str().c_str());
+	disconFromFirstCamera();
+
+	// Load, then transform and crop the captured image
+	sf::Image img; img.loadFromFile(ss.str()); ss.str("");
+	Image Fcap; Fcap.fromUchar(img.getSize().x, img.getSize().y, 4, 0x7, img.getPixelsPtr());
+	ss << topfolder << dptfolder << "camxform";
+	Fcap = xformCaptured(Fcap, F.getWidth(), F.getHeight(), ss.str()); ss.str("");
+	ss << topfolder << dptfolder << imgprefix << "_cam.jpg";
+	saveImage(Fcap, ss.str()); ss.str("");
+
+
+
+	/////////////////////////////////// SEARCH PSFS ///////////////////////////////////
+
+	double dpt_best = 1.2;
+	double ap_best = 5.4;
+	double sf_best = 1.0;
+	double mse = 0.000142548;
+	if (searchPSF) {
+		// Create a priority queue to hold the smallest MSE
+		std::priority_queue<PSFParm, std::vector<PSFParm>, PSFCmp> pqueue;
+
+		std::cout << "Diopters\tAperture\tScale\t\tMSE" << std::endl;
+		double dpt_min = 1.2;	double ap_min = 5.2;		double sf_min = 0.5;
+		double dpt_max = 3.0;	double ap_max = 7.0;		double sf_max = 1.4;
+		double dpt_step = 0.2;	double ap_step = 0.2;		double sf_step = 0.1;
+		for (int i_dpt = 0; i_dpt < (int)((dpt_max + dpt_step - dpt_min) / dpt_step + 0.5); i_dpt++) {
+			double dpt_psf = dpt_min + i_dpt * dpt_step;
+			for (int i_ap = 0; i_ap < (int)((ap_max + ap_step - ap_min) / ap_step + 0.5); i_ap++) {
+				double ap_psf = ap_min + i_ap * ap_step;
+				for (int i_sf = 0; i_sf < (int)((sf_max + sf_step - sf_min) / sf_step + 0.5); i_sf++) {
+					double sf_psf = sf_min + i_sf * sf_step;
+
+					// Load the PSF
+					ss << psffolder << "psf_"
+						<< std::setprecision(2) << std::fixed << dpt_psf << "d_"
+						<< std::setprecision(4) << std::fixed << ap_psf << "ap_"
+						<< std::setprecision(2) << std::fixed << sf_psf << "sf.dbl";
+					Image PSF; PSF.fromBinary(ss.str().c_str()); ss.str("");
+
+					// Convolve the original image
+					Image KF = convolve(F, PSF, BC_PERIODIC);
+
+					Image Fcap_e = Fcap;
+					if (equalize)
+						// Match captured image's histogram to convolved's histogram
+						Fcap_e = Fcap.match(KF);
+
+					// Calculate MSE and output
+					double KFMSE;
+					if (usegrad) {
+						Image grad = ((KF.diffX(BC_PERIODIC) ^ 2) + (KF.diffY(BC_PERIODIC) ^ 2)).sqrt();
+						KFMSE = (((KF - Fcap_e) ^ 2) * grad.scale()).sum() / (KF.getArraySize());
+					} else {
+						KFMSE = ((KF - Fcap_e) ^ 2).sum() / (KF.getArraySize());
+					}
+					std::cout << std::setprecision(2) << std::fixed << dpt_psf << "d\t\t"
+						<< std::setprecision(4) << std::fixed << ap_psf << "ap\t"
+						<< std::setprecision(2) << std::fixed << sf_psf << "sf\t\t"
+						<< std::setprecision(8) << std::fixed << KFMSE << std::endl;
+
+					// Create a PSFParm and add it to the priority queue
+					PSFParm psfparm(dpt_psf, ap_psf, sf_psf, KFMSE);
+					pqueue.push(psfparm);
+				}
+			}
+		}
+
+		// Get parameters for smallest MSE value
+		const PSFParm& psfparm = pqueue.top();
+		dpt_best = psfparm.dpt;
+		ap_best = psfparm.ap;
+		sf_best = psfparm.sf;
+		mse = psfparm.mse;
+	}
+
+	// Load the PSF
+	ss << psffolder << "psf_"
+		<< std::setprecision(2) << std::fixed << dpt_best << "d_"
+		<< std::setprecision(4) << std::fixed << ap_best << "ap_"
+		<< std::setprecision(2) << std::fixed << sf_best << "sf.dbl";
+	Image PSF; PSF.fromBinary(ss.str().c_str()); ss.str("");
+
+	// Convolve the original image and save it
+	Image KF = convolve(F, PSF, BC_PERIODIC);
+	ss << topfolder << dptfolder << imgprefix << "_conv_"
+		<< std::setprecision(2) << std::fixed << dpt_best << "d_"
+		<< std::setprecision(4) << std::fixed << ap_best << "ap_"
+		<< std::setprecision(2) << std::fixed << sf_best << "sf.png";
+	saveImage(KF, ss.str()); ss.str("");
+
+	Image Fcap_e = Fcap;
+	if (equalize) {
+		// Equalize captured image's histogram for comparison
+		Image Fcap_e = Fcap.match(KF);
+		ss << topfolder << dptfolder << imgprefix << "_cam_equ_"
+			<< std::setprecision(2) << std::fixed << dpt_best << "d_"
+			<< std::setprecision(4) << std::fixed << ap_best << "ap_"
+			<< std::setprecision(2) << std::fixed << sf_best << "sf.png";
+		saveImage(Fcap_e, ss.str()); ss.str("");
+	}
+
+	// Output MSE
+	std::cout << std::endl << "Best:" << std::endl
+		<< std::setprecision(2) << std::fixed << dpt_best << "d\t\t"
+		<< std::setprecision(4) << std::fixed << ap_best << "ap\t"
+		<< std::setprecision(2) << std::fixed << sf_best << "sf\t\t"
+		<< std::setprecision(8) << std::fixed << mse << std::endl;
+
+
+
+	////////////////////////////// PRECORRECT //////////////////////////////
+
+	Image KtF_L1, KtF_L2;
+	if (!loadprec) {
+		// Precorrect the test image
+		Options opts; opts.tv = TVL1;
+		KtF_L1 = precorrect(F, PSF, 9.3e4, opts);
+		ss << topfolder << dptfolder << imgprefix << "_prec_L1.png";
+		saveImage(KtF_L1, ss.str()); ss.str("");
+
+		opts.tv = TVL2;
+		KtF_L2 = precorrect(F, PSF, 9.3e4, opts);
+		ss << topfolder << dptfolder << imgprefix << "_prec_L2.png";
+		saveImage(KtF_L2, ss.str()); ss.str("");
+	} else {
+		ss << topfolder << dptfolder << imgprefix << "_prec_L1.png";
+		img.loadFromFile(ss.str()); ss.str("");
+		KtF_L1.fromUchar(img.getSize().x, img.getSize().y, 4, 0x7, img.getPixelsPtr());
+
+		ss << topfolder << dptfolder << imgprefix << "_prec_L2.png";
+		img.loadFromFile(ss.str()); ss.str("");
+		KtF_L2.fromUchar(img.getSize().x, img.getSize().y, 4, 0x7, img.getPixelsPtr());
+	}
+
+	// Convolve precorrections
+	Image KKtF_L1 = convolve(KtF_L1, PSF, BC_PERIODIC);
+	ss << topfolder << dptfolder << imgprefix << "_prec_L1_conv.png";
+	saveImage(KKtF_L1, ss.str()); ss.str("");
+
+	Image KKtF_L2 = convolve(KtF_L2, PSF, BC_PERIODIC);
+	ss << topfolder << dptfolder << imgprefix << "_prec_L2_conv.png";
+	saveImage(KKtF_L2, ss.str()); ss.str("");
+
+
+	///////////////////////////////////// CAPTURE PRECORRECTIONS /////////////////////
+
+	// Display precorrected images and capture
+	connectToFirstCamera();
+	showFullscreenImage(KtF_L1);
+	sf::sleep(sf::seconds(1.0f));
+	ss << topfolder << dptfolder << imgprefix << "_prec_L1_cam.jpg";
+	takeAPicture(ss.str().c_str()); ss.str("");
+
+	showFullscreenImage(KtF_L2);
+	sf::sleep(sf::seconds(1.0f));
+	ss << topfolder << dptfolder << imgprefix << "_prec_L2_cam.jpg";
+	takeAPicture(ss.str().c_str()); ss.str("");
+	disconFromFirstCamera();
+
+	// Load, then transform and crop captured precorrections
+	ss << topfolder << dptfolder << imgprefix << "_prec_L1_cam.jpg";
+	img.loadFromFile(ss.str()); ss.str("");
+	Image KtF_L1_cam; KtF_L1_cam.fromUchar(img.getSize().x, img.getSize().y, 4, 0x7, img.getPixelsPtr());
+	ss << topfolder << dptfolder << "camxform";
+	KtF_L1_cam = xformCaptured(KtF_L1_cam, F.getWidth(), F.getHeight(), ss.str()); ss.str("");
+	ss << topfolder << dptfolder << imgprefix << "_prec_L1_cam.jpg";
+	saveImage(KtF_L1_cam, ss.str()); ss.str("");
+
+	ss << topfolder << dptfolder << imgprefix << "_prec_L2_cam.jpg";
+	img.loadFromFile(ss.str()); ss.str("");
+	Image KtF_L2_cam; KtF_L2_cam.fromUchar(img.getSize().x, img.getSize().y, 4, 0x7, img.getPixelsPtr());
+	ss << topfolder << dptfolder << "camxform";
+	KtF_L2_cam = xformCaptured(KtF_L2_cam, F.getWidth(), F.getHeight(), ss.str()); ss.str("");
+	ss << topfolder << dptfolder << imgprefix << "_prec_L2_cam.jpg";
+	saveImage(KtF_L2_cam, ss.str()); ss.str("");
+
+
+	if (equalize) {
+		// Equalize captured precorrections
+		Image KtF_L1_cam_e = KtF_L1_cam.match(KKtF_L1);
+		ss << topfolder << dptfolder << imgprefix << "_prec_L1_cam_equ.png";
+		saveImage(KtF_L1_cam_e, ss.str()); ss.str("");
+		Image KtF_L2_cam_e = KtF_L2_cam.match(KKtF_L2);
+		ss << topfolder << dptfolder << imgprefix << "_prec_L2_cam_equ.png";
+		saveImage(KtF_L2_cam_e, ss.str()); ss.str("");
+	}
+
+	std::cout << "Done!" << std::endl;
 
 	loop();
 
