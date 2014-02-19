@@ -24,12 +24,18 @@
     <ClCompile Include="canoninterface.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="cameraproperties.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="imagewindow.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="canoninterface.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="cameraproperties.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

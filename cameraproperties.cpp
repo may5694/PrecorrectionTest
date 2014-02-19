@@ -1,0 +1,83 @@
+#include "cameraproperties.h"
+
+propStrValMap makeTvStrValMap() {
+	// According to the Canon EDSDK API reference manual:
+	// "Note: Values labeled "(1/3)" represent property values when the step set in the Custom Function is 1/3."
+	propStrValMap map;
+	map.insert(propStrValMapVal(CAMTV_30S,		propStrValMapMap("30\"",		30.0f)));
+	map.insert(propStrValMapVal(CAMTV_25S,		propStrValMapMap("25\"",		25.0f)));
+	map.insert(propStrValMapVal(CAMTV_20S,		propStrValMapMap("20\"",		20.0f)));
+	map.insert(propStrValMapVal(CAMTV_20SCF,	propStrValMapMap("20\" (1/3)",	20.0f)));
+	map.insert(propStrValMapVal(CAMTV_15S,		propStrValMapMap("15\"",		15.0f)));
+	map.insert(propStrValMapVal(CAMTV_13S,		propStrValMapMap("13\"",		13.0f)));
+	map.insert(propStrValMapVal(CAMTV_10S,		propStrValMapMap("10\"",		10.0f)));
+	map.insert(propStrValMapVal(CAMTV_10SCF,	propStrValMapMap("10\" (1/3)",	10.0f)));
+	map.insert(propStrValMapVal(CAMTV_8S,		propStrValMapMap("8\"",			8.0f)));
+	map.insert(propStrValMapVal(CAMTV_6SCF,		propStrValMapMap("6\" (1/3)",	6.0f)));
+	map.insert(propStrValMapVal(CAMTV_6S,		propStrValMapMap("6\"",			6.0f)));
+	map.insert(propStrValMapVal(CAMTV_5S,		propStrValMapMap("5\"",			5.0f)));
+	map.insert(propStrValMapVal(CAMTV_4S,		propStrValMapMap("4\"",			4.0f)));
+	map.insert(propStrValMapVal(CAMTV_3S2,		propStrValMapMap("3\"2",		3.2f)));
+	map.insert(propStrValMapVal(CAMTV_3S,		propStrValMapMap("3\"",			3.0f)));
+	map.insert(propStrValMapVal(CAMTV_2S5,		propStrValMapMap("2\"5",		2.5f)));
+	map.insert(propStrValMapVal(CAMTV_2S,		propStrValMapMap("2\"",			2.0f)));
+	map.insert(propStrValMapVal(CAMTV_1S6,		propStrValMapMap("1\"6",		1.6f)));
+	map.insert(propStrValMapVal(CAMTV_1S5,		propStrValMapMap("1\"5",		1.5f)));
+	map.insert(propStrValMapVal(CAMTV_1S3,		propStrValMapMap("1\"3",		1.3f)));
+	map.insert(propStrValMapVal(CAMTV_1S,		propStrValMapMap("1\"",			1.0f)));
+	map.insert(propStrValMapVal(CAMTV_0S8,		propStrValMapMap("0\"8",		0.8f)));
+	map.insert(propStrValMapVal(CAMTV_0S7,		propStrValMapMap("0\"7",		0.7f)));
+	map.insert(propStrValMapVal(CAMTV_0S6,		propStrValMapMap("0\"6",		0.6f)));
+	map.insert(propStrValMapVal(CAMTV_0S5,		propStrValMapMap("0\"5",		0.5f)));
+	map.insert(propStrValMapVal(CAMTV_0S4,		propStrValMapMap("0\"4",		0.4f)));
+	map.insert(propStrValMapVal(CAMTV_0S3,		propStrValMapMap("0\"3",		0.3f)));
+	map.insert(propStrValMapVal(CAMTV_0S3CF,	propStrValMapMap("0\"3 (1/3)",	0.3f)));
+	map.insert(propStrValMapVal(CAMTV_4,		propStrValMapMap("1/4",			1.0f / 4.0f)));
+	map.insert(propStrValMapVal(CAMTV_5,		propStrValMapMap("1/5",			1.0f / 5.0f)));
+	map.insert(propStrValMapVal(CAMTV_6,		propStrValMapMap("1/6",			1.0f / 6.0f)));
+	map.insert(propStrValMapVal(CAMTV_6CF,		propStrValMapMap("1/6 (1/3)",	1.0f / 6.0f)));
+	map.insert(propStrValMapVal(CAMTV_8,		propStrValMapMap("1/8",			1.0f / 8.0f)));
+	map.insert(propStrValMapVal(CAMTV_10CF,		propStrValMapMap("1/10 (1/3)",	1.0f / 10.0f)));
+	map.insert(propStrValMapVal(CAMTV_10,		propStrValMapMap("1/10",		1.0f / 10.0f)));
+	map.insert(propStrValMapVal(CAMTV_13,		propStrValMapMap("1/13",		1.0f / 13.0f)));
+	map.insert(propStrValMapVal(CAMTV_15,		propStrValMapMap("1/15",		1.0f / 15.0f)));
+	map.insert(propStrValMapVal(CAMTV_20CF,		propStrValMapMap("1/20 (1/3)",	1.0f / 20.0f)));
+	map.insert(propStrValMapVal(CAMTV_20,		propStrValMapMap("1/20",		1.0f / 20.0f)));
+	map.insert(propStrValMapVal(CAMTV_25,		propStrValMapMap("1/25",		1.0f / 25.0f)));
+	map.insert(propStrValMapVal(CAMTV_30,		propStrValMapMap("1/30",		1.0f / 30.0f)));
+	map.insert(propStrValMapVal(CAMTV_40,		propStrValMapMap("1/40",		1.0f / 40.0f)));
+	map.insert(propStrValMapVal(CAMTV_45,		propStrValMapMap("1/45",		1.0f / 45.0f)));
+	map.insert(propStrValMapVal(CAMTV_50,		propStrValMapMap("1/50",		1.0f / 50.0f)));
+	map.insert(propStrValMapVal(CAMTV_60,		propStrValMapMap("1/60",		1.0f / 60.0f)));
+	map.insert(propStrValMapVal(CAMTV_80,		propStrValMapMap("1/80",		1.0f / 80.0f)));
+	map.insert(propStrValMapVal(CAMTV_90,		propStrValMapMap("1/90",		1.0f / 90.0f)));
+	map.insert(propStrValMapVal(CAMTV_100,		propStrValMapMap("1/100",		1.0f / 100.0f)));
+	map.insert(propStrValMapVal(CAMTV_125,		propStrValMapMap("1/125",		1.0f / 125.0f)));
+	map.insert(propStrValMapVal(CAMTV_160,		propStrValMapMap("1/160",		1.0f / 160.0f)));
+	map.insert(propStrValMapVal(CAMTV_180,		propStrValMapMap("1/180",		1.0f / 180.0f)));
+	map.insert(propStrValMapVal(CAMTV_200,		propStrValMapMap("1/200",		1.0f / 200.0f)));
+	map.insert(propStrValMapVal(CAMTV_250,		propStrValMapMap("1/250",		1.0f / 250.0f)));
+	map.insert(propStrValMapVal(CAMTV_320,		propStrValMapMap("1/320",		1.0f / 320.0f)));
+	map.insert(propStrValMapVal(CAMTV_350,		propStrValMapMap("1/350",		1.0f / 350.0f)));
+	map.insert(propStrValMapVal(CAMTV_400,		propStrValMapMap("1/400",		1.0f / 400.0f)));
+	map.insert(propStrValMapVal(CAMTV_500,		propStrValMapMap("1/500",		1.0f / 500.0f)));
+	map.insert(propStrValMapVal(CAMTV_640,		propStrValMapMap("1/640",		1.0f / 640.0f)));
+	map.insert(propStrValMapVal(CAMTV_750,		propStrValMapMap("1/750",		1.0f / 750.0f)));
+	map.insert(propStrValMapVal(CAMTV_800,		propStrValMapMap("1/800",		1.0f / 800.0f)));
+	map.insert(propStrValMapVal(CAMTV_1000,		propStrValMapMap("1/1000",		1.0f / 1000.0f)));
+	map.insert(propStrValMapVal(CAMTV_1250,		propStrValMapMap("1/1250",		1.0f / 1250.0f)));
+	map.insert(propStrValMapVal(CAMTV_1500,		propStrValMapMap("1/1500",		1.0f / 1500.0f)));
+	map.insert(propStrValMapVal(CAMTV_1600,		propStrValMapMap("1/1600",		1.0f / 1600.0f)));
+	map.insert(propStrValMapVal(CAMTV_2000,		propStrValMapMap("1/2000",		1.0f / 2000.0f)));
+	map.insert(propStrValMapVal(CAMTV_2500,		propStrValMapMap("1/2500",		1.0f / 2500.0f)));
+	map.insert(propStrValMapVal(CAMTV_3000,		propStrValMapMap("1/3000",		1.0f / 3000.0f)));
+	map.insert(propStrValMapVal(CAMTV_3200,		propStrValMapMap("1/3200",		1.0f / 3200.0f)));
+	map.insert(propStrValMapVal(CAMTV_4000,		propStrValMapMap("1/4000",		1.0f / 4000.0f)));
+	map.insert(propStrValMapVal(CAMTV_5000,		propStrValMapMap("1/5000",		1.0f / 5000.0f)));
+	map.insert(propStrValMapVal(CAMTV_6000,		propStrValMapMap("1/6000",		1.0f / 6000.0f)));
+	map.insert(propStrValMapVal(CAMTV_6400,		propStrValMapMap("1/6400",		1.0f / 6400.0f)));
+	map.insert(propStrValMapVal(CAMTV_8000,		propStrValMapMap("1/8000",		1.0f / 8000.0f)));
+
+	return map;
+}
+const propStrValMap tvStrValMap = makeTvStrValMap();

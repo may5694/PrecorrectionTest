@@ -8,6 +8,7 @@
 #include <EDSDK.h>
 #include <EDSDKTypes.h>
 #include <vector>
+#include "cameraproperties.h"
 
 boolean connectToFirstCamera();
 boolean takeAPicture(const char *filename, void(*callback)(void*)=NULL);

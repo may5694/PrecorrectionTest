@@ -78,6 +78,7 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="cameraproperties.cpp" />
     <ClCompile Include="canoninterface.cpp" />
     <ClCompile Include="imagewindow.cpp" />
     <ClCompile Include="main.cpp" />
@@ -88,6 +89,7 @@
     </ProjectReference>
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="cameraproperties.h" />
     <ClInclude Include="canoninterface.h" />
     <ClInclude Include="imagewindow.h" />
   </ItemGroup>

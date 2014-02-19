@@ -12,6 +12,12 @@ std::vector<Image> imageVec;
 std::vector<std::string> titleVec;
 int rows = 1, cols = 1, imw = 120, imh = 0;
 
+enum ImgSpace {
+	Camera,
+	Physical,
+	Display
+};
+
 void saveImage(const Image& image, const std::string& filename) {
 	// Convert Image to RGBA8
 	sf::Uint8* buf = new sf::Uint8 [image.getArraySize() * 4];
@@ -108,49 +114,268 @@ Image alignCaptured(const Image& captured, int w, int h, std::string xformFile) 
 	Image out; out.fromUchar(capXform.getSize().x, capXform.getSize().y, 4, 0x7, capXform.getPixelsPtr());
 	return out;
 }
-Image correctGamma(const Image& captured, std::string gammaPath) {
-	// Read in gamma file
-	FILE* fp = fopen(gammaPath.c_str(), "rb");
+Image convertImgSpace(const Image& input, ImgSpace from, ImgSpace to, std::string convertPath) {
+	// Read in conversion file
+	FILE* fp = fopen(convertPath.c_str(), "rb");
 	if (!fp) throw -1;
 	int size;
 	fread(&size, sizeof(int), 1, fp);
-	std::map<double, double> camToDisp;
+	std::map<double, double> camToPhys, physToCam;
 	for (int i = 0; i < size; i++) {
 		double k, v;
 		fread(&k, sizeof(double), 1, fp);
 		fread(&v, sizeof(double), 1, fp);
-		camToDisp[k] = v;
+		camToPhys[k] = v;
+		physToCam[v] = k;
+	}
+	fread(&size, sizeof(int), 1, fp);
+	std::map<double, double> physToDisp, dispToPhys;
+	for (int i = 0; i < size; i++) {
+		double k, v;
+		fread(&k, sizeof(double), 1, fp);
+		fread(&v, sizeof(double), 1, fp);
+		physToDisp[k] = v;
+		dispToPhys[v] = k;
 	}
 	fclose(fp); fp = NULL;
 
-	Image capGamma(captured.getWidth(), captured.getHeight());
-	for (int y = 0; y < capGamma.getHeight(); y++) {
-		for (int x = 0; x < capGamma.getWidth(); x++) {
-			double val = captured.getPixel(x, y);
-			auto iu = camToDisp.upper_bound(val);
+	std::map<double, double>* usemap = NULL;
+	switch (from) {
+	case Camera:
+		switch (to) {
+		case Camera:	// Camera to camera (do nothing)
+			return input; break;
+		case Physical:	// Camera to physical
+			usemap = &camToPhys; break;
+		case Display:	// Camera to display (requires two conversions)
+			return convertImgSpace(convertImgSpace(input, Camera, Physical, convertPath),
+				Physical, Display, convertPath); break;
+		} break;
+	case Physical:
+		switch (to) {
+		case Camera:	// Physical to camera
+			usemap = &physToCam; break;
+		case Physical:	// Physical to physical (do nothing)
+			return input; break;
+		case Display:	// Physical to display
+			usemap = &physToDisp; break;
+		} break;
+	case Display:
+		switch (to) {
+		case Camera:	// Display to camera (requires two conversions)
+			return convertImgSpace(convertImgSpace(input, Display, Physical, convertPath),
+				Physical, Camera, convertPath); break;
+		case Physical:	// Display to physical
+			usemap = &dispToPhys; break;
+		case Display:	// Display to display (do nothing)
+			return input; break;
+		} break;
+	}
+
+	// Convert the input image
+	Image output(input.getWidth(), input.getHeight());
+	for (int y = 0; y < output.getHeight(); y++) {
+		for (int x = 0; x < output.getWidth(); x++) {
+			double val = input.getPixel(x, y);
+			double newval;
+			auto iu = usemap->upper_bound(val);
 			auto il = iu;
-			if (il != camToDisp.begin()) il--; else il = camToDisp.end();
-			double ilc, ild, iuc, iud;
-			if (il == camToDisp.end()) {
-				ilc = 0.0; ild = 0.0;
-				iuc = iu->first;
-				iud = iu->second;
-			} else if (iu == camToDisp.end()) {
-				iuc = 1.0; iud = 1.0;
-				ilc = il->first;
-				ild = il->second;
+			if (il != usemap->begin()) il--; else il = usemap->end();
+			if (il == usemap->end()) {
+				// Value is < lowest stored key, give lowest value
+				newval = iu->second;
+			} else if (iu == usemap->end()) {
+				// Value is >= highest stored key, give highest value
+				newval = il->second;
 			} else {
-				iuc = iu->first;
-				iud = iu->second;
-				ilc = il->first;
-				ild = il->second;
+				// Interpolate between higher and lower stored values
+				double iui = iu->first;
+				double iuo = iu->second;
+				double ili = il->first;
+				double ilo = il->second;
+				newval = (val - ili) / (iui - ili)
+					* (iuo - ilo) + ilo;
 			}
-			double newval = (val - ilc) / (iuc - ilc)
-				* (iud - ild) + ild;
-			capGamma.setPixel(x, y, newval);
+			output.setPixel(x, y, newval);
 		}
 	}
-	return capGamma;
+	return output;
+}
+void alignCam(std::string calibpath, int w, int h) {
+	std::stringstream ss;
+	ss << calibpath << "align_16.png";
+	std::string alignImgName = ss.str(); ss.str("");
+	ss << calibpath << "align_16_capt.png";
+	std::string alignImgCaptName = ss.str(); ss.str("");
+
+	// Create an alignment image
+	Image X(1, h, 1.0);
+	X = X.resize((w / 4) - 1, h, 0.0)
+		.resize((w / 4), h, 1.0)
+		.resize((3 * w / 4) - 1, h, 0.0)
+		.resize((3 * w / 4), h, 1.0)
+		.resize(w - 1, h, 0.0)
+		.resize(w, h, 1.0);
+	Image Y(w, 1, 1.0);
+	Y = Y.resize(w, (h / 4) - 1, 0.0)
+		.resize(w, (h / 4), 1.0)
+		.resize(w, (3 * h / 4) - 1, 0.0)
+		.resize(w, (3 * h / 4), 1.0)
+		.resize(w, h - 1, 0.0)
+		.resize(w, h, 1.0);
+	Image F = (X + Y).clip();
+	saveImage(F, alignImgName);
+
+	// Display the alignment image and capture it
+	connectToFirstCamera();
+	showFullscreenImage(F);
+	sf::sleep(sf::seconds(0.1f));
+	takeAPicture(alignImgCaptName.c_str());
+	disconFromFirstCamera();
+
+	// Now generate transform information with Matlab!
+}
+void calibCam(std::string calibpath, std::string alignName, std::string convertName, int w, int h) {
+	std::stringstream ss;
+	connectToFirstCamera();
+
+	// Camera calibration
+	// Get a list of supported shutter speeds within a given range
+	int oldtv = getTv();
+	std::vector<int> tvlist; getTvList(tvlist);
+	int tvmin = CAMTV_1S, tvmax = CAMTV_40;
+	auto il = std::lower_bound(tvlist.begin(), tvlist.end(), tvmin);
+	auto iu = std::upper_bound(tvlist.begin(), tvlist.end(), tvmax);
+
+	// Display a full intensity image
+	Image full(w, h, 1.0);
+	showFullscreenImage(full);
+	sf::sleep(sf::seconds(0.3f));
+
+	// Loop through shutter times
+	std::map<int, std::pair<double, double>> timeToAvgMax;
+	for (auto ii = il; ii != iu; ii++) {
+		double time = tvStrValMap.at(*ii).second;
+		ss << calibpath << "calib_cam_"
+			<< std::setprecision(3) << std::fixed << time << "s.png";
+		std::string camfname = ss.str(); ss.str("");
+
+		// Take a photo at each speed
+		setTv(*ii);
+		takeAPicture(camfname.c_str());
+		sf::Image cam_i; cam_i.loadFromFile(camfname);
+		Image cam; cam.fromUchar(cam_i.getSize().x, cam_i.getSize().y, 4, 0x7, cam_i.getPixelsPtr());
+
+		// Crop the image and overwrite captured image
+		cam = alignCaptured(cam, w / 2, h / 2, alignName);
+		saveImage(cam, camfname);
+
+		// Save the average intensity value in the map
+		double avg = cam.avg();
+		double max = cam.max();
+		timeToAvgMax[*ii] = std::pair<double, double>(avg, max);
+	}
+	// Remove times for which there is overexposure
+	auto iend = timeToAvgMax.begin();
+	auto ibegin = iend; ibegin++;
+	for (auto ii = ibegin; ii != timeToAvgMax.end(); ii++) {
+		if ((1.0 - ii->second.second) > DBL_EPSILON) {
+			iend = ii; iend--;
+			break;
+		}
+	}
+	int timeMaxI = iend->first;
+	double timeMax = tvStrValMap.at(timeMaxI).second;
+	std::cout << "Maximum shutter time: " << timeMax << std::endl;
+	if (iend != timeToAvgMax.begin()) timeToAvgMax.erase(timeToAvgMax.begin(), iend);
+
+	// Build a bidirectional mapping of physical radiance vs camera intensity
+	std::map<double, double> physToCam, camToPhys;
+	physToCam[0.0] = 0.0; camToPhys[0.0] = 0.0;
+	for (auto ii = timeToAvgMax.begin(); ii != timeToAvgMax.end(); ii++) {
+		double time = tvStrValMap.at(ii->first).second;
+		physToCam[time / timeMax] = ii->second.first;
+		camToPhys[ii->second.first] = time / timeMax;
+	}
+
+	// Set camera shutter time to maximum used
+	setTv(timeMaxI);
+
+	// Build a bidirectional mapping of physical radiance vs display intensity
+	std::map<double, double> physToDisp, dispToPhys;
+	int skipInt = 8;
+	for (int ii = 0; ii < 256; ii += skipInt) {
+		double i = ii / 255.0;
+		ss << calibpath << "calib_disp_"
+			<< std::setprecision(3) << std::fixed << i << ".png";
+		std::string camfname = ss.str(); ss.str("");
+
+		// Create an intensity image
+		Image disp(w, h, i);
+
+		// Take a picture of the displayed image
+		showFullscreenImage(disp);
+		windowList.pop_front();
+		sf::sleep(sf::seconds(0.1f));
+		takeAPicture(camfname.c_str());
+		sf::Image cam_i; cam_i.loadFromFile(camfname);
+		Image cam; cam.fromUchar(cam_i.getSize().x, cam_i.getSize().y, 4, 0x7, cam_i.getPixelsPtr());
+
+		// Crop the image and save over captured image
+		cam = alignCaptured(cam, w / 2, h / 2, alignName);
+		saveImage(cam, camfname);
+
+		// Transform the average camera intensity to physical radiance
+		double avg = cam.avg();
+		double newavg;
+		auto iu = camToPhys.upper_bound(avg);
+		auto il = iu;
+		if (il != camToPhys.begin()) il--; else il = camToPhys.end();
+		if (il == camToPhys.end()) {
+			// Value is < lowest stored key, give lowest value
+			newavg = iu->second;
+		} else if (iu == camToPhys.end()) {
+			// Value is >= highest stored key, give highest value
+			newavg = il->second;
+		} else {
+			// Interpolate between higher and lower stored values
+			double iui = iu->first;
+			double iuo = iu->second;
+			double ili = il->first;
+			double ilo = il->second;
+			newavg = (avg - ili) / (iui - ili)
+				* (iuo - ilo) + ilo;
+		}
+
+		// Save the display intensity and radiance into the maps
+		physToDisp[newavg] = i;
+		dispToPhys[i] = newavg;
+
+		// Make sure 255 is also captured
+		if (ii < 255 && ii + skipInt >= 256)
+			ii = 255 - skipInt;
+	}
+
+	disconFromFirstCamera();
+
+	// Write camera and display calibration to a file
+	FILE* fp = fopen(convertName.c_str(), "wb");
+	if (!fp) exit(-1);
+	int size = camToPhys.size();
+	fwrite(&size, sizeof(int), 1, fp);
+	for (auto ii = camToPhys.begin(); ii != camToPhys.end(); ii++) {
+		double k = ii->first, v = ii->second;
+		fwrite(&k, sizeof(double), 1, fp);
+		fwrite(&v, sizeof(double), 1, fp);
+	}
+	size = physToDisp.size();
+	fwrite(&size, sizeof(int), 1, fp);
+	for (auto ii = physToDisp.begin(); ii != physToDisp.end(); ii++) {
+		double k = ii->first, v = ii->second;
+		fwrite(&k, sizeof(double), 1, fp);
+		fwrite(&v, sizeof(double), 1, fp);
+	}
+	fclose(fp);
 }
 void addImageToGrid(const Image& image, const std::string& title = "") {
 	if (image.getWidth() > imw) imw = image.getWidth();
@@ -310,102 +535,24 @@ double dpt_cam = 2.00;
 std::stringstream ss;
 std::string topfolder;
 std::string calibfolder = "calib/";
+std::string calibpath;
 std::string psffolder = "psf/";
-std::string imgprefix = "letters";
-std::string alignfname;
-std::string gammafname;
-
-void alignCam() {
-	ss << topfolder << calibfolder << "align_16.png";
-	std::string alignName = ss.str(); ss.str("");
-	ss << topfolder << calibfolder << "align_16_cam.png";
-	std::string alignCamName = ss.str(); ss.str("");
-
-	// Create an alignment image
-	Image X(1, h, 1.0);
-	X = X.resize((w / 4) - 1, h, 0.0)
-		.resize((w / 4), h, 1.0)
-		.resize((3 * w / 4) - 1, h, 0.0)
-		.resize((3 * w / 4), h, 1.0)
-		.resize(w - 1, h, 0.0)
-		.resize(w, h, 1.0);
-	Image Y(w, 1, 1.0);
-	Y = Y.resize(w, (h / 4) - 1, 0.0)
-		.resize(w, (h / 4), 1.0)
-		.resize(w, (3 * h / 4) - 1, 0.0)
-		.resize(w, (3 * h / 4), 1.0)
-		.resize(w, h - 1, 0.0)
-		.resize(w, h, 1.0);
-	Image F = (X + Y).clip();
-	saveImage(F, alignName);
-
-	// Display the alignment image and capture it
-	connectToFirstCamera();
-	showFullscreenImage(F);
-	sf::sleep(sf::seconds(0.1f));
-	takeAPicture(alignCamName.c_str());
-	disconFromFirstCamera();
-
-	// Now generate transform information with Matlab!
-}
-void calibCam() {
-	connectToFirstCamera();
-
-	// Create a mapping from display intensity to camera intensity
-	std::map<double, double> camToDisp;
-	for (int ii = 0; ii < 256; ii += 8) {
-		double i = ii / 255.0;
-
-		// Create an intensity image
-		Image disp(w, h, i);
-
-		// Take a picture of the displayed image
-		showFullscreenImage(disp);
-		sf::sleep(sf::seconds(0.1f));
-		ss << topfolder << calibfolder << "calib_"
-			<< std::setprecision(3) << std::fixed << i << ".png";
-		std::string camfname = ss.str(); ss.str("");
-		takeAPicture(camfname.c_str());
-		sf::Image cam_i; cam_i.loadFromFile(camfname);
-		Image cam; cam.fromUchar(cam_i.getSize().x, cam_i.getSize().y, 4, 0x7, cam_i.getPixelsPtr());
-
-		// Crop the image and save over captured image
-		cam = alignCaptured(cam, w / 2, h / 2, alignfname);
-		saveImage(cam, camfname);
-
-		// Save the average intensity value in the map
-		camToDisp[cam.avg()] = i;
-
-		// Make sure 255 is also captured
-		if (ii < 255 && ii + 8 >= 256)
-			ii = 255 - 8;
-	}
-
-	disconFromFirstCamera();
-
-	// Write camera gamma curve to file
-	FILE* fp = fopen(gammafname.c_str(), "wb");
-	if (!fp) exit(-1);
-	int size = camToDisp.size();
-	fwrite(&size, sizeof(int), 1, fp);
-	for (auto ii = camToDisp.begin(); ii != camToDisp.end(); ii++) {
-		double k = ii->first, v = ii->second;
-		fwrite(&k, sizeof(double), 1, fp);
-		fwrite(&v, sizeof(double), 1, fp);
-	}
-	fclose(fp);
-}
+std::string imgprefix = "lenna";
+std::string alignName;
+std::string convertName;
 
 int main(void) {
-	ss << "camera_2.0m_f22_" << std::setprecision(2) << std::fixed << dpt_cam << "d_0/";
+	ss << "camera_2.0m_f22_" << std::setprecision(2) << std::fixed << dpt_cam << "d_3/";
 	topfolder = ss.str(); ss.str("");
-	ss << topfolder << "camalign";
-	alignfname = ss.str(); ss.str("");
-	ss << topfolder << "camgamma";
-	gammafname = ss.str(); ss.str("");
+	ss << topfolder << calibfolder;
+	calibpath = ss.str(); ss.str("");
+	ss << topfolder << calibfolder << "align.dat";
+	alignName = ss.str(); ss.str("");
+	ss << topfolder << calibfolder << "convert.dat";
+	convertName = ss.str(); ss.str("");
 
 	bool loadF = true;				// Whether to load the image to test
-	bool searchPSF = false;			// Whether to search the PSF space (else use predefined params)
+	bool searchPSF = true;			// Whether to search the PSF space (else use predefined params)
 	bool saveAllTests = false;		// Whether to save all PSF tests (careful with this one!)
 	bool loadprec = false;			// Whether to load the precorrections
 	bool usegrad = true;			// Whether to use the gradient in PSF testing
@@ -414,19 +561,19 @@ int main(void) {
 
 	// Align the camera
 	if (align) {
-		alignCam();
+		alignCam(calibpath, w, h);
 		loop();
 		return 0;
 	}
 	// Calibrate the camera intensity
 	if (calib) {
-		calibCam();
+		calibCam(calibpath, alignName, convertName, w, h);
 		return 0;
 	}
 
 	// Load or generate the test image
-	Image F;
-	ss << topfolder << imgprefix << ".png";
+	Image F_disp;
+	ss << topfolder << imgprefix << "_disp.png";
 	if (!loadF) {
 		int w = 1280, h = 1024;
 		Image X((w / 4) - 1, h, 0.0);
@@ -439,43 +586,54 @@ int main(void) {
 			.resize(w, (3 * h / 4) - 1, 0.0)
 			.resize(w, (3 * h / 4), 1.0)
 			.resize(w, h, 0.0);
-		F = std::move(X);
-		F += Y;
-		F = F.clip();
+		F_disp = std::move(X);
+		F_disp += Y;
+		F_disp = F_disp.clip();
 
-		saveImage(F, ss.str()); ss.str("");
+		saveImage(F_disp, ss.str()); ss.str("");
 	} else {
 		sf::Image img; img.loadFromFile(ss.str()); ss.str("");
-		F.fromUchar(img.getSize().x, img.getSize().y, 4, 0x7, img.getPixelsPtr());
+		F_disp.fromUchar(img.getSize().x, img.getSize().y, 4, 0x7, img.getPixelsPtr());
 	}
+
+	// Convert original image into physical image space
+	Image F_phys = convertImgSpace(F_disp, Display, Physical, convertName);
+	ss << topfolder << imgprefix << "_phys.png";
+	saveImage(F_phys, ss.str()); ss.str("");
+	Image F_cam = convertImgSpace(F_phys, Physical, Camera, convertName);
+	ss << topfolder << imgprefix << "_cam.png";
+	saveImage(F_cam, ss.str()); ss.str("");
 
 	// Capture the test image
 	connectToFirstCamera();
-	showFullscreenImage(F);
+	showFullscreenImage(F_disp);
 	sf::sleep(sf::seconds(1.0f));
-	ss << topfolder << imgprefix << "_cam.png";
+	ss << topfolder << imgprefix << "_capt_cam.png";
 	takeAPicture(ss.str().c_str());
 	disconFromFirstCamera();
 
 	// Load, then transform and crop the captured image
 	sf::Image img; img.loadFromFile(ss.str()); ss.str("");
-	Image Fcap; Fcap.fromUchar(img.getSize().x, img.getSize().y, 4, 0x7, img.getPixelsPtr());
-	Fcap = alignCaptured(Fcap, F.getWidth(), F.getHeight(), alignfname);
-	ss << topfolder << imgprefix << "_cam.png";
-	saveImage(Fcap, ss.str()); ss.str("");
+	Image F_capt_cam; F_capt_cam.fromUchar(img.getSize().x, img.getSize().y, 4, 0x7, img.getPixelsPtr());
+	F_capt_cam = alignCaptured(F_capt_cam, F_disp.getWidth(), F_disp.getHeight(), alignName);
+	ss << topfolder << imgprefix << "_capt_cam.png";
+	saveImage(F_capt_cam, ss.str()); ss.str("");
 
-	// Gamma-correct captured image
-	Fcap = correctGamma(Fcap, gammafname);
-	ss << topfolder << imgprefix << "_cam_gam.png";
-	saveImage(Fcap, ss.str()); ss.str("");
+	// Convert captured image into physical and display space
+	Image F_capt_phys = convertImgSpace(F_capt_cam, Camera, Physical, convertName);
+	ss << topfolder << imgprefix << "_capt_phys.png";
+	saveImage(F_capt_phys, ss.str()); ss.str("");
+	Image F_capt_disp = convertImgSpace(F_capt_phys, Physical, Display, convertName);
+	ss << topfolder << imgprefix << "_capt_disp.png";
+	saveImage(F_capt_disp, ss.str()); ss.str("");
 
 
 	/////////////////////////////////// SEARCH PSFS ///////////////////////////////////
 
 	double dpt_best = 2.0;
 	double ap_best = 5.4;
-	double sf_best = 0.7;
-	double mse = 0.0;
+	double sf_best = 0.6;
+	double mse_best = 0.0;
 	if (searchPSF) {
 		// Create a priority queue to hold the smallest MSE
 		std::priority_queue<PSFParm, std::vector<PSFParm>, PSFCmp> pqueue;
@@ -501,27 +659,33 @@ int main(void) {
 					Image PSF; PSF.fromBinary(ss.str().c_str()); ss.str("");
 
 					// Convolve the original image
-					Image KF = convolve(F, PSF, BC_PERIODIC);
+					Image F_conv_phys = convolve(F_phys, PSF, BC_PERIODIC);
+					Image F_conv_disp = convertImgSpace(F_conv_phys, Physical, Display, convertName);
+					Image F_conv_cam = convertImgSpace(F_conv_phys, Physical, Camera, convertName);
 					if (saveAllTests) {
-						ss << topfolder << imgprefix << "_" << params << "_conv.png";
-						saveImage(KF, ss.str()); ss.str("");
+						ss << topfolder << imgprefix << "_" << params << "_conv_phys.png";
+						saveImage(F_conv_phys, ss.str()); ss.str("");
+						ss << topfolder << imgprefix << "_" << params << "_conv_disp.png";
+						saveImage(F_conv_disp, ss.str()); ss.str("");
+						ss << topfolder << imgprefix << "_" << params << "_conv_cam.png";
+						saveImage(F_conv_cam, ss.str()); ss.str("");
 					}
 
 					// Calculate MSE and output
-					double KFMSE;
+					double mse;
 					if (usegrad) {
-						Image grad = ((KF.diffX(BC_PERIODIC) ^ 2) + (KF.diffY(BC_PERIODIC) ^ 2)).sqrt();
-						KFMSE = (((KF - Fcap) ^ 2) * grad.scale()).sum() / (KF.getArraySize());
+						Image grad = ((F_conv_phys.diffX(BC_PERIODIC) ^ 2) + (F_conv_phys.diffY(BC_PERIODIC) ^ 2)).sqrt();
+						mse = (((F_conv_phys - F_capt_phys) ^ 2) * grad.scale()).sum() / (F_conv_phys.getArraySize());
 					} else {
-						KFMSE = ((KF - Fcap) ^ 2).sum() / (KF.getArraySize());
+						mse = ((F_conv_phys - F_capt_phys) ^ 2).sum() / (F_conv_phys.getArraySize());
 					}
 					std::cout << std::setprecision(2) << std::fixed << dpt_psf << "d\t\t"
 						<< std::setprecision(4) << std::fixed << ap_psf << "ap\t"
 						<< std::setprecision(2) << std::fixed << sf_psf << "sf\t\t"
-						<< std::setprecision(8) << std::fixed << KFMSE << std::endl;
+						<< std::setprecision(8) << std::fixed << mse << std::endl;
 
 					// Create a PSFParm and add it to the priority queue
-					PSFParm psfparm(dpt_psf, ap_psf, sf_psf, KFMSE);
+					PSFParm psfparm(dpt_psf, ap_psf, sf_psf, mse);
 					pqueue.push(psfparm);
 				}
 			}
@@ -532,7 +696,7 @@ int main(void) {
 		dpt_best = psfparm.dpt;
 		ap_best = psfparm.ap;
 		sf_best = psfparm.sf;
-		mse = psfparm.mse;
+		mse_best = psfparm.mse;
 	}
 
 	// Get PSF parameters into a string
@@ -546,10 +710,16 @@ int main(void) {
 	Image PSF; PSF.fromBinary(ss.str().c_str()); ss.str("");
 
 	// Convolve the original image
-	Image KF = convolve(F, PSF, BC_PERIODIC);
+	Image F_conv_phys = convolve(F_phys, PSF, BC_PERIODIC);
+	Image F_conv_disp = convertImgSpace(F_conv_phys, Physical, Display, convertName);
+	Image F_conv_cam = convertImgSpace(F_conv_phys, Physical, Camera, convertName);
 	if (!saveAllTests || !searchPSF) {
-		ss << topfolder << imgprefix << "_" << params << "_conv.png";
-		saveImage(KF, ss.str()); ss.str("");
+		ss << topfolder << imgprefix << "_" << params << "_conv_phys.png";
+		saveImage(F_conv_phys, ss.str()); ss.str("");
+		ss << topfolder << imgprefix << "_" << params << "_conv_disp.png";
+		saveImage(F_conv_disp, ss.str()); ss.str("");
+		ss << topfolder << imgprefix << "_" << params << "_conv_cam.png";
+		saveImage(F_conv_cam, ss.str()); ss.str("");
 	}
 
 	// Output MSE
@@ -557,83 +727,132 @@ int main(void) {
 		<< std::setprecision(2) << std::fixed << dpt_best << "d\t\t"
 		<< std::setprecision(4) << std::fixed << ap_best << "ap\t"
 		<< std::setprecision(2) << std::fixed << sf_best << "sf\t\t"
-		<< std::setprecision(8) << std::fixed << mse << std::endl;
+		<< std::setprecision(8) << std::fixed << mse_best << std::endl;
 
 
 
 	////////////////////////////// PRECORRECT //////////////////////////////
 
-	Image KtF_L1, KtF_L2;
-	ss << topfolder << imgprefix << "_" << params << "_prec_L1.png";
-	std::string KtF_L1_str = ss.str(); ss.str("");
-	ss << topfolder << imgprefix << "_" << params << "_prec_L1_conv.png";
-	std::string KtF_L1_conv_str = ss.str(); ss.str("");
-	ss << topfolder << imgprefix << "_" << params << "_prec_L2.png";
-	std::string KtF_L2_str = ss.str(); ss.str("");
-	ss << topfolder << imgprefix << "_" << params << "_prec_L2_conv.png";
-	std::string KtF_L2_conv_str = ss.str(); ss.str("");
+	Image F_prec_L1_phys, F_prec_L1_disp, F_prec_L1_cam; 
+	Image F_prec_L2_phys, F_prec_L2_disp, F_prec_L2_cam;
+	ss << topfolder << imgprefix << "_" << params << "_prec_L1_phys.png";
+	std::string F_prec_L1_phys_str = ss.str(); ss.str("");
+	ss << topfolder << imgprefix << "_" << params << "_prec_L1_conv_phys.png";
+	std::string F_prec_L1_conv_phys_str = ss.str(); ss.str("");
+	ss << topfolder << imgprefix << "_" << params << "_prec_L1_disp.png";
+	std::string F_prec_L1_disp_str = ss.str(); ss.str("");
+	ss << topfolder << imgprefix << "_" << params << "_prec_L1_conv_disp.png";
+	std::string F_prec_L1_conv_disp_str = ss.str(); ss.str("");
+	ss << topfolder << imgprefix << "_" << params << "_prec_L1_cam.png";
+	std::string F_prec_L1_cam_str = ss.str(); ss.str("");
+	ss << topfolder << imgprefix << "_" << params << "_prec_L1_conv_cam.png";
+	std::string F_prec_L1_conv_cam_str = ss.str(); ss.str("");
+	ss << topfolder << imgprefix << "_" << params << "_prec_L2_phys.png";
+	std::string F_prec_L2_phys_str = ss.str(); ss.str("");
+	ss << topfolder << imgprefix << "_" << params << "_prec_L2_conv_phys.png";
+	std::string F_prec_L2_conv_phys_str = ss.str(); ss.str("");
+	ss << topfolder << imgprefix << "_" << params << "_prec_L2_disp.png";
+	std::string F_prec_L2_disp_str = ss.str(); ss.str("");
+	ss << topfolder << imgprefix << "_" << params << "_prec_L2_conv_disp.png";
+	std::string F_prec_L2_conv_disp_str = ss.str(); ss.str("");
+	ss << topfolder << imgprefix << "_" << params << "_prec_L2_cam.png";
+	std::string F_prec_L2_cam_str = ss.str(); ss.str("");
+	ss << topfolder << imgprefix << "_" << params << "_prec_L2_conv_cam.png";
+	std::string F_prec_L2_conv_cam_str = ss.str(); ss.str("");
 
 	if (!loadprec) {
 		// Precorrect the test image
 		Options opts; opts.tv = TVL1;
-		KtF_L1 = precorrect(F, PSF, 9.3e4, opts);
-		saveImage(KtF_L1, KtF_L1_str);
+		F_prec_L1_phys = precorrect(F_phys, PSF, 9.3e4, opts);
+		saveImage(F_prec_L1_phys, F_prec_L1_phys_str);
+		F_prec_L1_disp = convertImgSpace(F_prec_L1_phys, Physical, Display, convertName);
+		saveImage(F_prec_L1_disp, F_prec_L1_disp_str);
+		F_prec_L1_cam = convertImgSpace(F_prec_L1_phys, Physical, Camera, convertName);
+		saveImage(F_prec_L1_cam, F_prec_L1_cam_str);
 
 		opts.tv = TVL2;
-		KtF_L2 = precorrect(F, PSF, 9.3e4, opts);
-		saveImage(KtF_L2, KtF_L2_str);
+		F_prec_L2_phys = precorrect(F_phys, PSF, 9.3e4, opts);
+		saveImage(F_prec_L2_phys, F_prec_L2_phys_str);
+		F_prec_L2_disp = convertImgSpace(F_prec_L2_phys, Physical, Display, convertName);
+		saveImage(F_prec_L2_disp, F_prec_L2_disp_str);
+		F_prec_L2_cam = convertImgSpace(F_prec_L2_phys, Physical, Camera, convertName);
+		saveImage(F_prec_L2_cam, F_prec_L2_cam_str);
 	} else {
-		img.loadFromFile(KtF_L1_str);
-		KtF_L1.fromUchar(img.getSize().x, img.getSize().y, 4, 0x7, img.getPixelsPtr());
+		img.loadFromFile(F_prec_L1_phys_str);
+		F_prec_L1_phys.fromUchar(img.getSize().x, img.getSize().y, 4, 0x7, img.getPixelsPtr());
+		img.loadFromFile(F_prec_L1_disp_str);
+		F_prec_L1_disp.fromUchar(img.getSize().x, img.getSize().y, 4, 0x7, img.getPixelsPtr());
+		img.loadFromFile(F_prec_L1_cam_str);
+		F_prec_L1_cam.fromUchar(img.getSize().x, img.getSize().y, 4, 0x7, img.getPixelsPtr());
 
-		img.loadFromFile(KtF_L2_str);
-		KtF_L2.fromUchar(img.getSize().x, img.getSize().y, 4, 0x7, img.getPixelsPtr());
+		img.loadFromFile(F_prec_L2_phys_str);
+		F_prec_L2_phys.fromUchar(img.getSize().x, img.getSize().y, 4, 0x7, img.getPixelsPtr());
+		img.loadFromFile(F_prec_L2_disp_str);
+		F_prec_L2_disp.fromUchar(img.getSize().x, img.getSize().y, 4, 0x7, img.getPixelsPtr());
+		img.loadFromFile(F_prec_L2_cam_str);
+		F_prec_L2_cam.fromUchar(img.getSize().x, img.getSize().y, 4, 0x7, img.getPixelsPtr());
 	}
 
 	// Convolve precorrections
-	Image KKtF_L1 = convolve(KtF_L1, PSF, BC_PERIODIC);
-	saveImage(KKtF_L1, KtF_L1_conv_str);
+	Image F_prec_L1_conv_phys = convolve(F_prec_L1_phys, PSF, BC_PERIODIC);
+	saveImage(F_prec_L1_conv_phys, F_prec_L1_conv_phys_str);
+	Image F_prec_L1_conv_disp = convertImgSpace(F_prec_L1_conv_phys, Physical, Display, convertName);
+	saveImage(F_prec_L1_conv_disp, F_prec_L1_conv_disp_str);
+	Image F_prec_L1_conv_cam = convertImgSpace(F_prec_L1_conv_phys, Physical, Camera, convertName);
+	saveImage(F_prec_L1_conv_cam, F_prec_L1_conv_cam_str);
 
-	Image KKtF_L2 = convolve(KtF_L2, PSF, BC_PERIODIC);
-	saveImage(KKtF_L2, KtF_L2_conv_str);
+	Image F_prec_L2_conv_phys = convolve(F_prec_L2_phys, PSF, BC_PERIODIC);
+	saveImage(F_prec_L2_conv_phys, F_prec_L2_conv_phys_str);
+	Image F_prec_L2_conv_disp = convertImgSpace(F_prec_L2_conv_phys, Physical, Display, convertName);
+	saveImage(F_prec_L2_conv_disp, F_prec_L2_conv_disp_str);
+	Image F_prec_L2_conv_cam = convertImgSpace(F_prec_L2_conv_phys, Physical, Camera, convertName);
+	saveImage(F_prec_L2_conv_cam, F_prec_L2_conv_cam_str);
 
 
 	///////////////////////////////////// CAPTURE PRECORRECTIONS /////////////////////
 
-	ss << topfolder << imgprefix << "_" << params << "_prec_L1_cam.png";
-	std::string KtF_L1_cam_str = ss.str(); ss.str("");
-	ss << topfolder << imgprefix << "_" << params << "_prec_L1_cam_gam.png";
-	std::string KtF_L1_cam_gam_str = ss.str(); ss.str("");
-	ss << topfolder << imgprefix << "_" << params << "_prec_L2_cam.png";
-	std::string KtF_L2_cam_str = ss.str(); ss.str("");
-	ss << topfolder << imgprefix << "_" << params << "_prec_L2_cam_gam.png";
-	std::string KtF_L2_cam_gam_str = ss.str(); ss.str("");
+	ss << topfolder << imgprefix << "_" << params << "_prec_L1_capt_cam.png";
+	std::string F_prec_L1_capt_cam_str = ss.str(); ss.str("");
+	ss << topfolder << imgprefix << "_" << params << "_prec_L1_capt_phys.png";
+	std::string F_prec_L1_capt_phys_str = ss.str(); ss.str("");
+	ss << topfolder << imgprefix << "_" << params << "_prec_L1_capt_disp.png";
+	std::string F_prec_L1_capt_disp_str = ss.str(); ss.str("");
+	ss << topfolder << imgprefix << "_" << params << "_prec_L2_capt_cam.png";
+	std::string F_prec_L2_capt_cam_str = ss.str(); ss.str("");
+	ss << topfolder << imgprefix << "_" << params << "_prec_L2_capt_phys.png";
+	std::string F_prec_L2_capt_phys_str = ss.str(); ss.str("");
+	ss << topfolder << imgprefix << "_" << params << "_prec_L2_capt_disp.png";
+	std::string F_prec_L2_capt_disp_str = ss.str(); ss.str("");
 
 	// Display precorrected images and capture
 	connectToFirstCamera();
-	showFullscreenImage(KtF_L1);
+	showFullscreenImage(F_prec_L1_disp);
 	sf::sleep(sf::seconds(1.0f));
-	takeAPicture(KtF_L1_cam_str.c_str());
+	takeAPicture(F_prec_L1_capt_cam_str.c_str());
 
-	showFullscreenImage(KtF_L2);
+	showFullscreenImage(F_prec_L2_disp);
 	sf::sleep(sf::seconds(1.0f));
-	takeAPicture(KtF_L2_cam_str.c_str());
+	takeAPicture(F_prec_L2_capt_cam_str.c_str());
 	disconFromFirstCamera();
 
-	// Load, align, and gamma-correct captured precorrections
-	img.loadFromFile(KtF_L1_cam_str);
-	Image KtF_L1_cam; KtF_L1_cam.fromUchar(img.getSize().x, img.getSize().y, 4, 0x7, img.getPixelsPtr());
-	KtF_L1_cam = alignCaptured(KtF_L1_cam, F.getWidth(), F.getHeight(), alignfname);
-	saveImage(KtF_L1_cam, KtF_L1_cam_str);
-	KtF_L1_cam = correctGamma(KtF_L1_cam, gammafname);
-	saveImage(KtF_L1_cam, KtF_L1_cam_gam_str);
+	// Load, align, and convert captured precorrections
+	img.loadFromFile(F_prec_L1_capt_cam_str);
+	Image F_prec_L1_capt_cam; F_prec_L1_capt_cam.fromUchar(img.getSize().x, img.getSize().y, 4, 0x7, img.getPixelsPtr());
+	F_prec_L1_capt_cam = alignCaptured(F_prec_L1_capt_cam, F_disp.getWidth(), F_disp.getHeight(), alignName);
+	saveImage(F_prec_L1_capt_cam, F_prec_L1_capt_cam_str);
+	Image F_prec_L1_capt_phys = convertImgSpace(F_prec_L1_capt_cam, Camera, Physical, convertName);
+	saveImage(F_prec_L1_capt_phys, F_prec_L1_capt_phys_str);
+	Image F_prec_L1_capt_disp = convertImgSpace(F_prec_L1_capt_phys, Physical, Display, convertName);
+	saveImage(F_prec_L1_capt_disp, F_prec_L1_capt_disp_str);
 
-	img.loadFromFile(KtF_L2_cam_str);
-	Image KtF_L2_cam; KtF_L2_cam.fromUchar(img.getSize().x, img.getSize().y, 4, 0x7, img.getPixelsPtr());
-	KtF_L2_cam = alignCaptured(KtF_L2_cam, F.getWidth(), F.getHeight(), alignfname);
-	saveImage(KtF_L2_cam, KtF_L2_cam_str);
-	KtF_L2_cam = correctGamma(KtF_L2_cam, gammafname);
-	saveImage(KtF_L2_cam, KtF_L2_cam_gam_str);
+	img.loadFromFile(F_prec_L2_capt_cam_str);
+	Image F_prec_L2_capt_cam; F_prec_L2_capt_cam.fromUchar(img.getSize().x, img.getSize().y, 4, 0x7, img.getPixelsPtr());
+	F_prec_L2_capt_cam = alignCaptured(F_prec_L2_capt_cam, F_disp.getWidth(), F_disp.getHeight(), alignName);
+	saveImage(F_prec_L2_capt_cam, F_prec_L2_capt_cam_str);
+	Image F_prec_L2_capt_phys = convertImgSpace(F_prec_L2_capt_cam, Camera, Physical, convertName);
+	saveImage(F_prec_L2_capt_phys, F_prec_L2_capt_phys_str);
+	Image F_prec_L2_capt_disp = convertImgSpace(F_prec_L2_capt_phys, Physical, Display, convertName);
+	saveImage(F_prec_L2_capt_disp, F_prec_L2_capt_disp_str);
 
 
 	std::cout << "Done!" << std::endl;
