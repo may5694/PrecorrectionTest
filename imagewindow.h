@@ -24,6 +24,9 @@ public:
 		swap(first._showHistCDF, second._showHistCDF);
 		swap(first._hist, second._hist);
 		swap(first._cdf, second._cdf);
+		swap(first._showBCs, second._showBCs);
+		swap(first._bc, second._bc);
+		swap(first._bcs, second._bcs);
 	}
 
 	void update();	// Handles events and draws the window
@@ -48,6 +51,8 @@ public:
 	void zoomIn(int times = 1) { zoom(times); }
 	void zoomOut(int times = 1) { zoom(-times); }
 	void showHistCDF(bool show) { _showHistCDF = show; }
+	void setBCs(BC_ENUM bc);
+	void showBCs(bool showBCs)	{ _showBCs = showBCs; }
 private:
 	// Disable copying
 	ImageWindow(const ImageWindow& ref);		// Copy constructor -- NOT IMPLEMENTED
@@ -65,6 +70,9 @@ private:
 	bool _showHistCDF;		// Whether to show the histogram and CDF
 	std::vector<sf::RectangleShape> _hist;	// Histogram rectangles
 	sf::VertexArray _cdf;					// CDF
+	bool _showBCs;			// Whether to draw the boundary conditions
+	BC_ENUM _bc;			// Boundary conditions
+	std::vector<sf::Sprite> _bcs;	// Boundary conditions sprites
 	// Static members
 	static int _count;				// Number of windows
 	static const double _offset;	// How much to translate image by

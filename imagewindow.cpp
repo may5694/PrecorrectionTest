@@ -57,6 +57,9 @@ ImageWindow::ImageWindow(const Image& image, bool decorate) {
 		_cdf[i].color = sf::Color::Green;
 	}
 
+	setBCs(BC_PERIODIC);
+	showBCs(false);
+
 	_col = sf::Color(128, 128, 128, 255);
 
 	delete [] buf; buf = NULL;
@@ -112,6 +115,9 @@ ImageWindow::ImageWindow(int width, int height, sf::Uint8* buf, bool decorate) {
 		_cdf[i].position = sf::Vector2f(i / 256.0f * 512.0f, 512.0f - (cdf[i-1] * 512.0f));
 		_cdf[i].color = sf::Color::Green;
 	}
+
+	setBCs(BC_PERIODIC);
+	showBCs(false);
 
 	_col = sf::Color(128, 128, 128, 255);
 }
@@ -196,6 +202,11 @@ void ImageWindow::update() {
 	// Draw sprite
 	_w->draw(*_s);
 
+	if (_showBCs) {
+		for (auto it = _bcs.begin(); it != _bcs.end(); it++) {\
+			_w->draw(*it);
+		}
+	}
 	if (_showHistCDF) {
 		for (auto it = _hist.begin(); it != _hist.end(); it++) {
 			_w->draw(*it);
@@ -215,6 +226,76 @@ void ImageWindow::zoom(int times) {
 	_w->setView(v);
 	_w->setSize(sf::Vector2u(_width / _zoom, _height / _zoom));
 	updateTitle();
+}
+void ImageWindow::setBCs(BC_ENUM bc) {
+	_bcs.clear();
+	_bc = bc;
+
+	sf::Sprite s(*_t);
+	switch (_bc) {
+	case BC_PERIODIC:
+		s.setScale(1.0, 1.0);
+		// Upper-left corner
+		s.setPosition(-_width, -_height);
+		_bcs.push_back(s);
+		// Above
+		s.setPosition(0.0f, -_height);
+		_bcs.push_back(s);
+		// Upper-right corner
+		s.setPosition(_width, -_height);
+		_bcs.push_back(s);
+		// Right
+		s.setPosition(_width, 0.0f);
+		_bcs.push_back(s);
+		// Lower-right corner
+		s.setPosition(_width, _height);
+		_bcs.push_back(s);
+		// Below
+		s.setPosition(0.0f, _height);
+		_bcs.push_back(s);
+		// Lower-left corner
+		s.setPosition(-_width, _height);
+		_bcs.push_back(s);
+		// Left
+		s.setPosition(-_width, 0.0f);
+		_bcs.push_back(s);
+
+		break;
+	case BC_REFLEXIVE:
+		s.setPosition(0.0, 0.0);
+		// Upper-left corner
+		s.setScale(-1.0f, -1.0f);
+		_bcs.push_back(s);
+		// Above
+		s.setScale(1.0f, -1.0f);
+		_bcs.push_back(s);
+		// Upper-right corner
+		s.setScale(-1.0f, -1.0f);
+		s.setPosition(2.0f * _width, 0.0f);
+		_bcs.push_back(s);
+		// Right
+		s.setScale(-1.0f, 1.0f);
+		s.setPosition(2.0f * _width, 0.0f);
+		_bcs.push_back(s);
+		// Lower-right corner
+		s.setScale(-1.0f, -1.0f);
+		s.setPosition(2.0f * _width, 2.0f * _height);
+		_bcs.push_back(s);
+		// Below
+		s.setScale(1.0f, -1.0f);
+		s.setPosition(0.0f, 2.0f * _height);
+		_bcs.push_back(s);
+		// Lower-left corner
+		s.setScale(-1.0f, -1.0f);
+		s.setPosition(0.0f, 2.0f * _height);
+		_bcs.push_back(s);
+		// Left
+		s.setScale(-1.0f, 1.0f);
+		s.setPosition(0.0f, 0.0f);
+		_bcs.push_back(s);
+
+		break;
+	}
 }
 
 void ImageWindow::updateTitle() {
