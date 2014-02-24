@@ -12,11 +12,15 @@ std::vector<Image> imageVec;
 std::vector<std::string> titleVec;
 int rows = 1, cols = 1, imw = 120, imh = 0;
 
+// Image spaces
 enum ImgSpace {
 	Camera,
 	Physical,
 	Display
 };
+const int sm_cam = 0x4;
+const int sm_phys = 0x2;
+const int sm_disp = 0x1;
 
 void saveImage(const Image& image, const std::string& filename) {
 	// Convert Image to RGBA8
@@ -517,18 +521,18 @@ void test2(const Image& F, const Image& PSF) {
 
 // Structure to hold PSF creation parameters along with test result
 struct PSFParm {
-	PSFParm(double pdpt, double pap, double psf, double pmse) :
-		dpt(pdpt), ap(pap), sf(psf), mse(pmse) {}
+	PSFParm(double pdpt, double pap, double psf, double perr) :
+		dpt(pdpt), ap(pap), sf(psf), err(perr) {}
 	double dpt;		// Diopter power of PSF
 	double ap;		// Pupil diameter
 	double sf;		// Scale factor
-	double mse;		// MSE of convolved test image against captured test image
+	double err;		// Error value
 };
 // Functor to compare the MSE of two PSFParm objects
 class PSFCmp {
 public:
 	bool operator() (const PSFParm& lhs, const PSFParm& rhs) const {
-		return lhs.mse > rhs.mse;	// Reverse order so smallest MSE at front
+		return lhs.err > rhs.err;	// Reverse order so smallest error at front
 	}
 };
 
@@ -546,7 +550,7 @@ std::string alignName;
 std::string convertName;
 
 int main(void) {
-	ss << "camera_2.0m_f22_" << std::setprecision(2) << std::fixed << dpt_cam << "d_0/";
+	ss << "camera_2.0m_f22_" << std::setprecision(2) << std::fixed << dpt_cam << "d_1/";
 	topfolder = ss.str(); ss.str("");
 	ss << topfolder << calibfolder;
 	calibpath = ss.str(); ss.str("");
@@ -556,9 +560,9 @@ int main(void) {
 	convertName = ss.str(); ss.str("");
 
 	bool searchPSF = true;			// Whether to search the PSF space (else use predefined params)
-	bool saveAllTests = false;		// Whether to save all PSF tests (careful with this one!)
-	bool loadprec = false;			// Whether to load the precorrections
+	bool loadPSFTests = false;		// Whether to load test images instead of capture them
 	bool usegrad = false;			// Whether to use the gradient in PSF testing
+	int saveMask = sm_disp;			// Which spaces to save
 	bool align = false;				// Align the camera (don't do anything else)
 	bool calib = false;				// Calibrate the camera (don't do anything else)
 	int numBest = 5;				// Pick the top numBest images to fully test
@@ -581,15 +585,15 @@ int main(void) {
 	sf::Image img; img.loadFromFile(ss.str()); ss.str("");
 	F_disp.fromUchar(img.getSize().x, img.getSize().y, 4, 0x7, img.getPixelsPtr());
 	ss << topfolder << imgprefix << "_disp.png";
-	saveImage(F_disp, ss.str()); ss.str("");
+	if (saveMask & sm_disp) saveImage(F_disp, ss.str()); ss.str("");
 
 	// Convert original image into physical image space
 	Image F_phys = convertImgSpace(F_disp, Display, Physical, convertName);
 	ss << topfolder << imgprefix << "_phys.png";
-	saveImage(F_phys, ss.str()); ss.str("");
+	if (saveMask & sm_phys) saveImage(F_phys, ss.str()); ss.str("");
 	Image F_cam = convertImgSpace(F_phys, Physical, Camera, convertName);
 	ss << topfolder << imgprefix << "_cam.png";
-	saveImage(F_cam, ss.str()); ss.str("");
+	if (saveMask & sm_cam) saveImage(F_cam, ss.str()); ss.str("");
 
 	// Capture the test image
 	connectToFirstCamera();
@@ -609,10 +613,10 @@ int main(void) {
 	// Convert captured image into physical and display space
 	Image F_capt_phys = convertImgSpace(F_capt_cam, Camera, Physical, convertName);
 	ss << topfolder << imgprefix << "_capt_phys.png";
-	saveImage(F_capt_phys, ss.str()); ss.str("");
+	if (saveMask & sm_phys) saveImage(F_capt_phys, ss.str()); ss.str("");
 	Image F_capt_disp = convertImgSpace(F_capt_phys, Physical, Display, convertName);
 	ss << topfolder << imgprefix << "_capt_disp.png";
-	saveImage(F_capt_disp, ss.str()); ss.str("");
+	if (saveMask & sm_disp) saveImage(F_capt_disp, ss.str()); ss.str("");
 
 
 	/////////////////////////////////// SEARCH PSFS ///////////////////////////////////
@@ -620,16 +624,16 @@ int main(void) {
 	double dpt_best = 2.0;
 	double ap_best = 5.4;
 	double sf_best = 0.6;
-	double mse_best = 0.0;
+	double err_best = 0.0;
 	// Create a priority queue to hold the smallest MSE
 	std::priority_queue<PSFParm, std::vector<PSFParm>, PSFCmp> pqueue;
 	if (searchPSF) {
-		connectToFirstCamera();
+		if (!loadPSFTests) connectToFirstCamera();
 
-		std::cout << "Diopters\tAperture\tScale\t\tMSE" << std::endl;
-		double dpt_min = 2.25;	double ap_min = 4.0;		double sf_min = 0.3;
-		double dpt_max = 2.25;	double ap_max = 7.0;		double sf_max = 0.8;
-		double dpt_step = 0.2;	double ap_step = 0.1;		double sf_step = 0.1;
+		std::cout << "Diopters\tAperture\tScale\t\tError" << std::endl;
+		double dpt_min = 2.25;	double ap_min = 5.9;		double sf_min = 0.4;
+		double dpt_max = 2.25;	double ap_max = 6.1;		double sf_max = 0.6;
+		double dpt_step = 0.2;	double ap_step = 0.02;		double sf_step = 0.02;
 		int i_dpt_max = (int)((dpt_max + dpt_step - dpt_min) / dpt_step + 0.5);
 		int i_ap_max = (int)((ap_max + ap_step - ap_min) / ap_step + 0.5);
 		int i_sf_max = (int)((sf_max + sf_step - sf_min) / sf_step + 0.5);
@@ -637,7 +641,7 @@ int main(void) {
 			double dpt_psf = dpt_min + i_dpt * dpt_step;
 
 			// Create an image to visualize the MSE
-			Image psfMse(i_sf_max, i_ap_max);
+			Image psfErr(i_sf_max, i_ap_max);
 
 			for (int i_ap = 0; i_ap < i_ap_max; i_ap++) {
 				double ap_psf = ap_min + i_ap * ap_step;
@@ -649,79 +653,72 @@ int main(void) {
 						<< std::setprecision(2) << std::fixed << sf_psf << "sf";
 					std::string params = ss.str(); ss.str("");
 
-					// Load the PSF
-					ss << psffolder << "psf_" << params << ".dbl";
-					Image PSF; PSF.fromBinary(ss.str().c_str()); ss.str("");
-
-					//// Convolve the original image
-					//Image F_conv_phys = convolve(F_phys, PSF, BC_PERIODIC);
-					//Image F_conv_disp = convertImgSpace(F_conv_phys, Physical, Display, convertName);
-					//Image F_conv_cam = convertImgSpace(F_conv_phys, Physical, Camera, convertName);
-					//if (saveAllTests) {
-					//	ss << topfolder << imgprefix << "_" << params << "_conv_phys.png";
-					//	saveImage(F_conv_phys, ss.str()); ss.str("");
-					//	ss << topfolder << imgprefix << "_" << params << "_conv_disp.png";
-					//	saveImage(F_conv_disp, ss.str()); ss.str("");
-					//	ss << topfolder << imgprefix << "_" << params << "_conv_cam.png";
-					//	saveImage(F_conv_cam, ss.str()); ss.str("");
-					//}
-
-					// Precorrect original image
-					Options opts; opts.tv = TVL2; opts.maxiter = 1; opts.print = false;
-					Image F_prec_L2_phys = precorrect(F_phys, PSF, 9.3e4, opts);
-					Image F_prec_L2_disp = convertImgSpace(F_prec_L2_phys, Physical, Display, convertName);
-
-					// Convolve precorrection
-					Image F_prec_L2_conv_phys = convolve(F_prec_L2_phys, PSF, BC_PERIODIC);
-					Image F_prec_L2_conv_disp = convertImgSpace(F_prec_L2_conv_phys, Physical, Display, convertName);
-					ss << topfolder << captfolder << imgprefix << "_" << params << "_prec_L2_conv_disp.png";
-					saveImage(F_prec_L2_conv_disp, ss.str()); ss.str("");
-
-					// Capture precorrection
-					showFullscreenImage(F_prec_L2_disp);
-					if (windowList.size() > 1) windowList.pop_front();
-					sf::sleep(sf::seconds(0.1f));
-					ss << topfolder << captfolder << imgprefix << "_" << params << "_prec_L2_capt_disp.png";
+					Image F_prec_L2_conv_phys, F_prec_L2_capt_phys;
+					ss << topfolder << captfolder << imgprefix << "_" << params << "_prec_L2_conv_phys.png";
+					std::string convname = ss.str(); ss.str("");
+					ss << topfolder << captfolder << imgprefix << "_" << params << "_prec_L2_capt_phys.png";
 					std::string captname = ss.str(); ss.str("");
-					takeAPicture(captname.c_str());
+					if (!loadPSFTests) {
+						// Load the PSF
+						ss << psffolder << "psf_" << params << ".dbl";
+						Image PSF; PSF.fromBinary(ss.str().c_str()); ss.str("");
 
-					// Align and convert captured image
-					img.loadFromFile(captname);
-					Image F_prec_L2_capt_cam; F_prec_L2_capt_cam.fromUchar(img.getSize().x, img.getSize().y, 4, 0x7, img.getPixelsPtr());
-					F_prec_L2_capt_cam = alignCaptured(F_prec_L2_capt_cam, F_disp.getWidth(), F_disp.getHeight(), alignName);
-					//saveImage(F_prec_L2_capt_cam, captname);
-					Image F_prec_L2_capt_phys = convertImgSpace(F_prec_L2_capt_cam, Camera, Physical, convertName);
-					Image F_prec_L2_capt_disp = convertImgSpace(F_prec_L2_capt_phys, Physical, Display, convertName);
-					saveImage(F_prec_L2_capt_disp, captname);
+						// Precorrect original image
+						Options opts; opts.tv = TVL2; opts.maxiter = 1; opts.print = false;
+						Image F_prec_L2_phys = precorrect(F_phys, PSF, 9.3e4, opts);
+						Image F_prec_L2_disp = convertImgSpace(F_prec_L2_phys, Physical, Display, convertName);
 
-					// Calculate MSE and output
+						// Convolve precorrection
+						F_prec_L2_conv_phys = convolve(F_prec_L2_phys, PSF, BC_PERIODIC);
+						saveImage(F_prec_L2_conv_phys, convname);
+
+						// Capture precorrection
+						showFullscreenImage(F_prec_L2_disp);
+						if (windowList.size() > 1) windowList.pop_front();
+						sf::sleep(sf::seconds(0.1f));
+						takeAPicture(captname.c_str());
+
+						// Align and convert captured image
+						img.loadFromFile(captname);
+						Image F_prec_L2_capt_cam; F_prec_L2_capt_cam.fromUchar(img.getSize().x, img.getSize().y, 4, 0x7, img.getPixelsPtr());
+						F_prec_L2_capt_cam = alignCaptured(F_prec_L2_capt_cam, F_disp.getWidth(), F_disp.getHeight(), alignName);
+						F_prec_L2_capt_phys = convertImgSpace(F_prec_L2_capt_cam, Camera, Physical, convertName);
+						saveImage(F_prec_L2_capt_phys, captname);
+					} else {
+						img.loadFromFile(convname);
+						F_prec_L2_conv_phys.fromUchar(img.getSize().x, img.getSize().y, 4, 0x7, img.getPixelsPtr());
+						img.loadFromFile(captname);
+						F_prec_L2_capt_phys.fromUchar(img.getSize().x, img.getSize().y, 4, 0x7, img.getPixelsPtr());
+					}
+
+					// Calculate error and output
 					Image& conv = F_prec_L2_conv_phys;
 					Image& capt = F_prec_L2_capt_phys;
-					double mse;
+					double err;
 					if (usegrad) {
 						Image grad = ((conv.diffX(BC_PERIODIC) ^ 2) + (conv.diffY(BC_PERIODIC) ^ 2)).sqrt();
-						mse = (((conv - capt) ^ 2) * grad.scale()).sum() / (conv.getArraySize());
+						err = (((conv - capt) ^ 2) * grad.scale()).sum() / (conv.getArraySize());
 					} else {
-						mse = ((conv - capt) ^ 2).sum() / (conv.getArraySize());
+						err = ((conv - capt) ^ 2).sum() / (conv.getArraySize());
 					}
 					std::cout << std::setprecision(2) << std::fixed << dpt_psf << "d\t\t"
 						<< std::setprecision(4) << std::fixed << ap_psf << "ap\t"
 						<< std::setprecision(2) << std::fixed << sf_psf << "sf\t\t"
-						<< std::setprecision(8) << std::fixed << mse << std::endl;
+						<< std::setprecision(8) << std::fixed << err << std::endl;
 
-					// Save MSE value into MSE image
-					psfMse.setPixel(i_sf, i_ap, mse);
+					// Save err value into err image
+					psfErr.setPixel(i_sf, i_ap, err);
 
 					// Create a PSFParm and add it to the priority queue
-					PSFParm psfparm(dpt_psf, ap_psf, sf_psf, mse);
+					PSFParm psfparm(dpt_psf, ap_psf, sf_psf, err);
 					pqueue.push(psfparm);
 				}
 			}
 
-			psfMse = psfMse.scale().equalize(1024);
+			psfErr = psfErr.scale().equalize(1024);
 			ss << topfolder << imgprefix << "_"
-				<< std::setprecision(2) << std::fixed << dpt_psf << "d_mse.png";
-			saveImage(psfMse, ss.str()); ss.str("");
+				<< std::setprecision(2) << std::fixed << dpt_psf << "d_err.png";
+			saveImage(psfErr, ss.str()); ss.str("");
 		}
 
 		// Get parameters for smallest MSE value
@@ -729,13 +726,13 @@ int main(void) {
 		dpt_best = psfparm.dpt;
 		ap_best = psfparm.ap;
 		sf_best = psfparm.sf;
-		mse_best = psfparm.mse;
+		err_best = psfparm.err;
+
+		if (!loadPSFTests) disconFromFirstCamera();
 	} else {
-		PSFParm ppm(dpt_best, ap_best, sf_best, mse_best);
+		PSFParm ppm(dpt_best, ap_best, sf_best, err_best);
 		pqueue.push(ppm);
 	}
-
-	disconFromFirstCamera();
 
 	// Create a log file
 	ss << topfolder << imgprefix << "_log.txt";
@@ -759,20 +756,18 @@ int main(void) {
 		Image F_conv_phys = convolve(F_phys, PSF, BC_PERIODIC);
 		Image F_conv_disp = convertImgSpace(F_conv_phys, Physical, Display, convertName);
 		Image F_conv_cam = convertImgSpace(F_conv_phys, Physical, Camera, convertName);
-		if (!saveAllTests || !searchPSF) {
-			ss << topfolder << imgprefix << "_" << params << "_conv_phys.png";
-			saveImage(F_conv_phys, ss.str()); ss.str("");
-			ss << topfolder << imgprefix << "_" << params << "_conv_disp.png";
-			saveImage(F_conv_disp, ss.str()); ss.str("");
-			ss << topfolder << imgprefix << "_" << params << "_conv_cam.png";
-			saveImage(F_conv_cam, ss.str()); ss.str("");
-		}
+		ss << topfolder << imgprefix << "_" << params << "_conv_phys.png";
+		if (saveMask & sm_phys) saveImage(F_conv_phys, ss.str()); ss.str("");
+		ss << topfolder << imgprefix << "_" << params << "_conv_disp.png";
+		if (saveMask & sm_disp) saveImage(F_conv_disp, ss.str()); ss.str("");
+		ss << topfolder << imgprefix << "_" << params << "_conv_cam.png";
+		if (saveMask & sm_cam) saveImage(F_conv_cam, ss.str()); ss.str("");
 
 		// Output MSE
 		ss << std::setprecision(2) << std::fixed << ppm.dpt << "d\t\t"
 			<< std::setprecision(4) << std::fixed << ppm.ap << "ap\t"
 			<< std::setprecision(2) << std::fixed << ppm.sf << "sf\t\t"
-			<< std::setprecision(8) << std::fixed << ppm.mse << std::endl;
+			<< std::setprecision(8) << std::fixed << ppm.err << std::endl;
 		std::string outParam = ss.str(); ss.str("");
 		std::cout << std::endl << "# " << i+1 << ":" << std::endl << outParam;
 		if (logfp) fprintf(logfp, outParam.c_str());
@@ -807,53 +802,37 @@ int main(void) {
 		ss << topfolder << imgprefix << "_" << params << "_prec_L2_conv_cam.png";
 		std::string F_prec_L2_conv_cam_str = ss.str(); ss.str("");
 
-		if (!loadprec) {
-			// Precorrect the test image
-			Options opts; opts.tv = TVL1;
-			F_prec_L1_phys = precorrect(F_phys, PSF, 9.3e4, opts);
-			saveImage(F_prec_L1_phys, F_prec_L1_phys_str);
-			F_prec_L1_disp = convertImgSpace(F_prec_L1_phys, Physical, Display, convertName);
-			saveImage(F_prec_L1_disp, F_prec_L1_disp_str);
-			F_prec_L1_cam = convertImgSpace(F_prec_L1_phys, Physical, Camera, convertName);
-			saveImage(F_prec_L1_cam, F_prec_L1_cam_str);
+		// Precorrect the test image
+		Options opts; opts.tv = TVL1;
+		F_prec_L1_phys = precorrect(F_phys, PSF, 9.3e4, opts);
+		if (saveMask & sm_phys) saveImage(F_prec_L1_phys, F_prec_L1_phys_str);
+		F_prec_L1_disp = convertImgSpace(F_prec_L1_phys, Physical, Display, convertName);
+		if (saveMask & sm_disp) saveImage(F_prec_L1_disp, F_prec_L1_disp_str);
+		F_prec_L1_cam = convertImgSpace(F_prec_L1_phys, Physical, Camera, convertName);
+		if (saveMask & sm_cam) saveImage(F_prec_L1_cam, F_prec_L1_cam_str);
 
-			opts.tv = TVL2;
-			F_prec_L2_phys = precorrect(F_phys, PSF, 9.3e4, opts);
-			saveImage(F_prec_L2_phys, F_prec_L2_phys_str);
-			F_prec_L2_disp = convertImgSpace(F_prec_L2_phys, Physical, Display, convertName);
-			saveImage(F_prec_L2_disp, F_prec_L2_disp_str);
-			F_prec_L2_cam = convertImgSpace(F_prec_L2_phys, Physical, Camera, convertName);
-			saveImage(F_prec_L2_cam, F_prec_L2_cam_str);
-		} else {
-			img.loadFromFile(F_prec_L1_phys_str);
-			F_prec_L1_phys.fromUchar(img.getSize().x, img.getSize().y, 4, 0x7, img.getPixelsPtr());
-			img.loadFromFile(F_prec_L1_disp_str);
-			F_prec_L1_disp.fromUchar(img.getSize().x, img.getSize().y, 4, 0x7, img.getPixelsPtr());
-			img.loadFromFile(F_prec_L1_cam_str);
-			F_prec_L1_cam.fromUchar(img.getSize().x, img.getSize().y, 4, 0x7, img.getPixelsPtr());
-
-			img.loadFromFile(F_prec_L2_phys_str);
-			F_prec_L2_phys.fromUchar(img.getSize().x, img.getSize().y, 4, 0x7, img.getPixelsPtr());
-			img.loadFromFile(F_prec_L2_disp_str);
-			F_prec_L2_disp.fromUchar(img.getSize().x, img.getSize().y, 4, 0x7, img.getPixelsPtr());
-			img.loadFromFile(F_prec_L2_cam_str);
-			F_prec_L2_cam.fromUchar(img.getSize().x, img.getSize().y, 4, 0x7, img.getPixelsPtr());
-		}
+		opts.tv = TVL2;
+		F_prec_L2_phys = precorrect(F_phys, PSF, 9.3e4, opts);
+		if (saveMask & sm_phys) saveImage(F_prec_L2_phys, F_prec_L2_phys_str);
+		F_prec_L2_disp = convertImgSpace(F_prec_L2_phys, Physical, Display, convertName);
+		if (saveMask & sm_disp) saveImage(F_prec_L2_disp, F_prec_L2_disp_str);
+		F_prec_L2_cam = convertImgSpace(F_prec_L2_phys, Physical, Camera, convertName);
+		if (saveMask & sm_cam) saveImage(F_prec_L2_cam, F_prec_L2_cam_str);
 
 		// Convolve precorrections
 		Image F_prec_L1_conv_phys = convolve(F_prec_L1_phys, PSF, BC_PERIODIC);
-		saveImage(F_prec_L1_conv_phys, F_prec_L1_conv_phys_str);
+		if (saveMask & sm_phys) saveImage(F_prec_L1_conv_phys, F_prec_L1_conv_phys_str);
 		Image F_prec_L1_conv_disp = convertImgSpace(F_prec_L1_conv_phys, Physical, Display, convertName);
-		saveImage(F_prec_L1_conv_disp, F_prec_L1_conv_disp_str);
+		if (saveMask & sm_disp) saveImage(F_prec_L1_conv_disp, F_prec_L1_conv_disp_str);
 		Image F_prec_L1_conv_cam = convertImgSpace(F_prec_L1_conv_phys, Physical, Camera, convertName);
-		saveImage(F_prec_L1_conv_cam, F_prec_L1_conv_cam_str);
+		if (saveMask & sm_cam) saveImage(F_prec_L1_conv_cam, F_prec_L1_conv_cam_str);
 
 		Image F_prec_L2_conv_phys = convolve(F_prec_L2_phys, PSF, BC_PERIODIC);
-		saveImage(F_prec_L2_conv_phys, F_prec_L2_conv_phys_str);
+		if (saveMask & sm_phys) saveImage(F_prec_L2_conv_phys, F_prec_L2_conv_phys_str);
 		Image F_prec_L2_conv_disp = convertImgSpace(F_prec_L2_conv_phys, Physical, Display, convertName);
-		saveImage(F_prec_L2_conv_disp, F_prec_L2_conv_disp_str);
+		if (saveMask & sm_disp) saveImage(F_prec_L2_conv_disp, F_prec_L2_conv_disp_str);
 		Image F_prec_L2_conv_cam = convertImgSpace(F_prec_L2_conv_phys, Physical, Camera, convertName);
-		saveImage(F_prec_L2_conv_cam, F_prec_L2_conv_cam_str);
+		if (saveMask & sm_cam) saveImage(F_prec_L2_conv_cam, F_prec_L2_conv_cam_str);
 
 
 		///////////////////////////////////// CAPTURE PRECORRECTIONS /////////////////////
@@ -888,18 +867,18 @@ int main(void) {
 		F_prec_L1_capt_cam = alignCaptured(F_prec_L1_capt_cam, F_disp.getWidth(), F_disp.getHeight(), alignName);
 		saveImage(F_prec_L1_capt_cam, F_prec_L1_capt_cam_str);
 		Image F_prec_L1_capt_phys = convertImgSpace(F_prec_L1_capt_cam, Camera, Physical, convertName);
-		saveImage(F_prec_L1_capt_phys, F_prec_L1_capt_phys_str);
+		if (saveMask & sm_phys) saveImage(F_prec_L1_capt_phys, F_prec_L1_capt_phys_str);
 		Image F_prec_L1_capt_disp = convertImgSpace(F_prec_L1_capt_phys, Physical, Display, convertName);
-		saveImage(F_prec_L1_capt_disp, F_prec_L1_capt_disp_str);
+		if (saveMask & sm_disp) saveImage(F_prec_L1_capt_disp, F_prec_L1_capt_disp_str);
 
 		img.loadFromFile(F_prec_L2_capt_cam_str);
 		Image F_prec_L2_capt_cam; F_prec_L2_capt_cam.fromUchar(img.getSize().x, img.getSize().y, 4, 0x7, img.getPixelsPtr());
 		F_prec_L2_capt_cam = alignCaptured(F_prec_L2_capt_cam, F_disp.getWidth(), F_disp.getHeight(), alignName);
 		saveImage(F_prec_L2_capt_cam, F_prec_L2_capt_cam_str);
 		Image F_prec_L2_capt_phys = convertImgSpace(F_prec_L2_capt_cam, Camera, Physical, convertName);
-		saveImage(F_prec_L2_capt_phys, F_prec_L2_capt_phys_str);
+		if (saveMask & sm_phys) saveImage(F_prec_L2_capt_phys, F_prec_L2_capt_phys_str);
 		Image F_prec_L2_capt_disp = convertImgSpace(F_prec_L2_capt_phys, Physical, Display, convertName);
-		saveImage(F_prec_L2_capt_disp, F_prec_L2_capt_disp_str);
+		if (saveMask & sm_disp) saveImage(F_prec_L2_capt_disp, F_prec_L2_capt_disp_str);
 	}
 
 	if (logfp) fclose(logfp);
