@@ -5,6 +5,7 @@
 *.db
 *.log
 *.dat
+*.txt
 camxform
 camgamma
 camalign

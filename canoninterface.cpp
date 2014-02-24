@@ -62,8 +62,8 @@ EdsError downloadImage(EdsDirectoryItemRef directoryItem, char* filename)
 
 	// Notify done downloading
 	if (buf) {
-		std::cout << "snapped " << buf << std::endl;
-		std::flush(std::cout);
+		/*std::cout << "snapped " << buf << std::endl;
+		std::flush(std::cout);*/
 		delete [] buf; buf = NULL;
 	}
 	return err;
