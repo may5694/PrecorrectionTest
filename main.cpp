@@ -1,5 +1,3 @@
-#include <list>
-#include <queue>
 #include <iostream>
 #include <iomanip>
 #include "precorrection.h"
@@ -12,128 +10,8 @@ const int sm_cam = 0x4;
 const int sm_phys = 0x2;
 const int sm_disp = 0x1;
 
-void test1(const Image& F, const Image& PSF) {
-	int fw = F.getWidth();
-	int fh = F.getHeight();
-
-	Options opts;
-	opts.relchg = 1e-3;
-	double theta = 9.3e5;
-	sf::Clock c;
-
-	std::cout << "TVL1 Reflexive:" << std::endl;
-	opts.tv = TVL1;
-	opts.bc = BC_REFLEXIVE;
-	c.restart();
-	//Image KtF_L1R = precorrect(F, PSF, theta, opts);
-	Image KtF_L1R; KtF_L1R.fromBinary("lenna_KtF_L1R.dbl");
-	std::cout << "Elapsed time: " << c.getElapsedTime().asSeconds() << " seconds" << std::endl << std::endl;
-	KtF_L1R.toBinary("lenna_KtF_L1R.dbl");
-
-	std::cout << "TVL2 Reflexive:" << std::endl;
-	opts.tv = TVL2;
-	c.restart();
-	//Image KtF_L2R = precorrect(F, PSF, theta, opts);
-	Image KtF_L2R; KtF_L2R.fromBinary("lenna_KtF_L2R.dbl");
-	std::cout << "Elapsed time: " << c.getElapsedTime().asSeconds() << " seconds" << std::endl << std::endl;
-	KtF_L2R.toBinary("lenna_KtF_L2R.dbl");
-
-	Image KKtF_L1R = convolve(KtF_L1R, PSF, BC_REFLEXIVE);
-	Image KKtF_L2R = convolve(KtF_L2R, PSF, BC_REFLEXIVE);
-
-	std::cout << "TVL1 PSNR: " << KKtF_L1R.psnr(F) << "db" << std::endl;
-	std::cout << "TVL1 Sharpness: " << KKtF_L1R.sharpness(BC_REFLEXIVE) << std::endl;
-	std::cout << "TVL1 Contrast: " << KKtF_L1R.contrast() << std::endl;
-	std::cout << "TVL1 Sharpness / Contrast: " << KKtF_L1R.sharpness(BC_REFLEXIVE) / KKtF_L1R.contrast() << std::endl;
-	std::cout << "TVL1 JNB Sharpness: " << sharpnessJNB(KKtF_L1R) << std::endl;
-	std::cout << std::endl;
-
-	std::cout << "TVL2 PSNR: " << KKtF_L2R.psnr(F) << "db" << std::endl;
-	std::cout << "TVL2 Sharpness: " << KKtF_L2R.sharpness(BC_REFLEXIVE) << std::endl;
-	std::cout << "TVL2 Contrast: " << KKtF_L2R.contrast() << std::endl;
-	std::cout << "TVL2 Sharpness / Contrast: " << KKtF_L2R.sharpness(BC_REFLEXIVE) / KKtF_L2R.contrast() << std::endl;
-	std::cout << "TVL2 JNB Sharpness: " << sharpnessJNB(KKtF_L2R) << std::endl;
-
-	rows = 2; cols = 2;
-	addImageToGrid(KtF_L1R, "K\'F TVL1 R");
-	addImageToGrid(KKtF_L1R, "KK\'F TVL1 R");
-	addImageToGrid(KtF_L2R, "K\'F TVL2 R");
-	addImageToGrid(KKtF_L2R, "KK\'F TVL2 R");
-
-	showGrid();
-}
-void test2(const Image& F, const Image& PSF) {
-	// Load several PSFs
-	Image PSF_0125; PSF_0125.fromBinary("PSF_0.125.dbl");
-	Image PSF_0250; PSF_0250.fromBinary("PSF_0.250.dbl");
-	Image PSF_0375; PSF_0375.fromBinary("PSF_0.375.dbl");
-	Image PSF_0500; PSF_0500.fromBinary("PSF_0.500.dbl");
-	Image PSF_0625; PSF_0625.fromBinary("PSF_0.625.dbl");
-	Image PSF_0750; PSF_0750.fromBinary("PSF_0.750.dbl");
-	Image PSF_0875; PSF_0875.fromBinary("PSF_0.875.dbl");
-	Image PSF_1000; PSF_1000.fromBinary("PSF_1.000.dbl");
-	Image PSF_1125; PSF_1125.fromBinary("PSF_1.125.dbl");
-
-	// Create several blurry images
-	Image KF_0125 = convolve(F, PSF_0125, BC_PERIODIC);
-	Image KF_0250 = convolve(F, PSF_0250, BC_PERIODIC);
-	Image KF_0375 = convolve(F, PSF_0375, BC_PERIODIC);
-	Image KF_0500 = convolve(F, PSF_0500, BC_PERIODIC);
-	Image KF_0625 = convolve(F, PSF_0625, BC_PERIODIC);
-	Image KF_0750 = convolve(F, PSF_0750, BC_PERIODIC);
-	Image KF_0875 = convolve(F, PSF_0875, BC_PERIODIC);
-	Image KF_1000 = convolve(F, PSF_1000, BC_PERIODIC);
-	Image KF_1125 = convolve(F, PSF_1125, BC_PERIODIC);
-
-	// Measure each's sharpness
-	std::cout << "0.000 diopters: " << sharpnessJNB(F) << std::endl;
-	std::cout << "0.125 diopters: " << sharpnessJNB(KF_0125) << std::endl;
-	std::cout << "0.250 diopters: " << sharpnessJNB(KF_0250) << std::endl;
-	std::cout << "0.375 diopters: " << sharpnessJNB(KF_0375) << std::endl;
-	std::cout << "0.500 diopters: " << sharpnessJNB(KF_0500) << std::endl;
-	std::cout << "0.625 diopters: " << sharpnessJNB(KF_0625) << std::endl;
-	std::cout << "0.750 diopters: " << sharpnessJNB(KF_0750) << std::endl;
-	std::cout << "0.875 diopters: " << sharpnessJNB(KF_0875) << std::endl;
-	std::cout << "1.000 diopters: " << sharpnessJNB(KF_1000) << std::endl;
-	std::cout << "1.125 diopters: " << sharpnessJNB(KF_1125) << std::endl;
-
-	// Display each image
-	rows = 2; cols = 5;
-	addImageToGrid(F, "F");
-	addImageToGrid(KF_0125, "KF 0.125 dpt");
-	addImageToGrid(KF_0250, "KF 0.250 dpt");
-	addImageToGrid(KF_0375, "KF 0.375 dpt");
-	addImageToGrid(KF_0500, "KF 0.500 dpt");
-	addImageToGrid(KF_0625, "KF 0.625 dpt");
-	addImageToGrid(KF_0750, "KF 0.750 dpt");
-	addImageToGrid(KF_0875, "KF 0.875 dpt");
-	addImageToGrid(KF_1000, "KF 1.000 dpt");
-	addImageToGrid(KF_1125, "KF 1.125 dpt");
-
-	showGrid();
-}
-
-// Structure to hold PSF creation parameters along with test result
-struct PSFParm {
-	PSFParm(double pdpt, double pap, double psf, double perr) :
-		dpt(pdpt), ap(pap), sf(psf), err(perr) {}
-	double dpt;		// Diopter power of PSF
-	double ap;		// Pupil diameter
-	double sf;		// Scale factor
-	double err;		// Error value
-};
-// Functor to compare the MSE of two PSFParm objects
-class PSFCmp {
-public:
-	bool operator() (const PSFParm& lhs, const PSFParm& rhs) const {
-		return lhs.err > rhs.err;	// Reverse order so smallest error at front
-	}
-};
-
-int w = 1280, h = 1024;
 double dpt_cam = 2.25;
 std::string imgfolder = "img/";
-std::string captfolder = "captprec/";
 std::string imgprefix = "lenna";
 std::string alignName;
 std::string convertName;
@@ -156,9 +34,10 @@ int main(void) {
 
 	// Align the camera
 	if (!camAlign.read(alignName)) {
-		camAlign.create(1280, 1024);
+		camAlign.create(sw, sh);
+		loop();		// Loop to continue displaying alignment image (useful for focusing camera)
+
 		// Return here because alignment must be created in Matlab!
-		loop();
 		return 0;
 	}
 	// Calibrate the camera intensity

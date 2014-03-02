@@ -4,12 +4,13 @@
 #include <string>
 #include <sstream>
 #include <map>
+#include <queue>
 #include <SFML/Graphics.hpp>
 #include "image.h"
 #include "common.h"
 
 static const std::string calibfolder = "calib/";
-static const std::string psffolder = "psf/";
+static const std::string captfolder = "captprec/";
 
 // Enumerate the various image spaces
 enum ImgSpace {
@@ -31,7 +32,7 @@ struct CamAlign {
 };
 extern CamAlign camAlign;
 
-// Image space conversion structuer
+// Image space conversion structure
 struct ImgConvert {
 	std::map<double, double> camToPhys;		// Map camera intensity to physical radiance
 	std::map<double, double> physToCam;		// Map physical radiance to camera intensity
@@ -48,5 +49,41 @@ struct ImgConvert {
 	double convertValue(double in, const std::map<double, double>& usemap);			// Convert a value using a specified map
 };
 extern ImgConvert imgConvert;
+
+// PSF creation parameters and error measurement
+struct PSFParm {
+	PSFParm(double pdpt, double pap, double psf, double perr) :
+		dpt(pdpt), ap(pap), sf(psf), err(perr) {
+		// Create string representation
+		ss << std::setprecision(2) << std::fixed
+			<< dpt << "_" << ap << "_" << sf;
+		paramStr = ss.str(); ss.str("");
+		i_dpt = i_ap = i_sf = 0;
+	}
+	double dpt;		// Diopter power of PSF
+	double ap;		// Pupil diameter
+	double sf;		// Scale factor
+	double err;		// Error value
+
+	int i_dpt;		// Diopter index in range
+	int i_ap;		// Aperture index in range
+	int i_sf;		// Scale index in range
+	std::string paramStr;	// String representation of parameters (for filenames)
+};
+// Functor to compare the error of two PSFParm objects (used for priority queue)
+class PSFCmp {
+public:
+	bool operator() (const PSFParm& lhs, const PSFParm& rhs) const {
+		return lhs.err > rhs.err;	// Reverse order so smallest error at front
+	}
+};
+typedef std::priority_queue<PSFParm, std::vector<PSFParm>, PSFCmp> PSFpqueue;
+
+// Create an array of PSF parameters to use for testing
+std::vector<PSFParm> psfRange(double dpt_min, double dpt_max, double dpt_inc,
+							  double ap_min, double ap_max, double ap_inc,
+							  double sf_min, double sf_max, double sf_inc);
+// Test a range of PSFs and return a priority queue of the lowest error values
+PSFpqueue searchPSFs(const Image& in, const std::vector<PSFParm>& psfs);
 
 #endif

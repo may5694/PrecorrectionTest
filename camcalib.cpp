@@ -1,10 +1,14 @@
+#include <iostream>
 #include <iomanip>
+#include "precorrection.h"
 #include "camcalib.h"
 #include "canoninterface.h"
 
+// Global instances of alignment and conversion structures
 CamAlign camAlign;
 ImgConvert imgConvert;
 
+// Camera alignment methods
 void CamAlign::create(int sw, int sh) {
 	// Alignment image filenames
 	std::stringstream ss;
@@ -96,6 +100,7 @@ Image CamAlign::alignImage(const Image& in, int iw, int ih) {
 	return out;
 }
 
+// Image conversion methods
 void ImgConvert::create() {
 	connectToFirstCamera();
 
@@ -351,4 +356,90 @@ double ImgConvert::convertValue(double in, const std::map<double, double>& usema
 		out = (in - ilk) / (iuk - ilk) * (iuv - ilv) + ilv;
 	}
 	return out;
+}
+
+// PSF testing methods
+std::vector<PSFParm> psfRange(double dpt_min, double dpt_max, double dpt_inc,
+							  double ap_min, double ap_max, double ap_inc,
+							  double sf_min, double sf_max, double sf_inc) {
+	int i_dpt_max = (int)((dpt_max + dpt_inc - dpt_min) / dpt_inc + 0.5);
+	int i_ap_max = (int)((ap_max + ap_inc - ap_min) / ap_inc + 0.5);
+	int i_sf_max = (int)((sf_max + sf_inc - sf_min) / sf_inc + 0.5);
+
+	// Loop over all parameters
+	std::vector<PSFParm> psfList;
+	for (int i_dpt = 0; i_dpt < i_dpt_max; i_dpt++) {
+		double dpt_psf = dpt_min + i_dpt * dpt_inc;
+		for (int i_ap = 0; i_ap < i_ap_max; i_ap++) {
+			double ap_psf = ap_min + i_ap * ap_inc;
+			for (int i_sf = 0; i_sf < i_sf_max; i_sf++) {
+				double sf_psf = sf_min + i_sf * sf_inc;
+
+				// Create a parameter object
+				PSFParm ppm(dpt_psf, ap_psf, sf_psf, 0.0);
+				ppm.i_dpt = i_dpt;	// Store indices as well
+				ppm.i_ap = i_ap;
+				ppm.i_sf = i_sf;
+				// Add parameters to range
+				psfList.push_back(ppm);
+			}
+		}
+	}
+	return psfList;
+}
+PSFpqueue searchPSFs(const Image& in_disp, const std::vector<PSFParm>& psfs) {
+	// Convert the input image into physical space
+	Image in_phys = imgConvert.convertImage(in_disp, Display, Physical);
+
+	// Create a priority queue to order the PSFs by error rating
+	PSFpqueue pqueue;
+
+	// Loop through each PSF to test
+	std::cout << "Diopters\tAperture\tScale\t\tError" << std::endl;
+	for (auto it = psfs.begin(); it != psfs.end(); it++) {
+		// Generate image filenames
+		ss << topfolder << captfolder << "img_" << it->paramStr << "_prec_L2_conv_phys.png";
+		std::string convname = ss.str(); ss.str("");
+		ss << topfolder << captfolder << "img_" << it->paramStr << "_prec_L2_capt_phys.png";
+		std::string captname = ss.str(); ss.str("");
+
+		// Load the PSF
+		ss << psffolder << "psf_" << it->paramStr << ".dbl";
+		Image psf; psf.fromBinary(ss.str().c_str()); ss.str();
+
+		// Precorrect the input image
+		Options opts; opts.tv = TVL2; opts.maxiter = 1; opts.print = false;
+		Image prec_L2_phys = precorrect(in_phys, psf, 9.3e4, opts);
+		Image prec_L2_disp = imgConvert.convertImage(prec_L2_phys, Physical, Display);
+
+		// Convolve precorrected image
+		Image prec_L2_conv_phys = convolve(prec_L2_phys, psf, BC_PERIODIC);
+		writeImage(prec_L2_conv_phys, convname);
+
+		// Capture precorrected image
+		showImage(prec_L2_disp, true);
+		if (windowList.size() > 1) windowList.pop_front();
+		sf::sleep(sf::seconds(0.1f));
+		takeAPicture(captname.c_str());
+
+		// Align and convert captured image
+		Image prec_L2_capt_cam = readImage(captname);
+		prec_L2_capt_cam = camAlign.alignImage(prec_L2_capt_cam, in_phys.getWidth(), in_phys.getHeight());
+		Image prec_L2_capt_phys = imgConvert.convertImage(prec_L2_capt_cam, Camera, Physical);
+		writeImage(prec_L2_capt_phys, captname);	// Replace cam-space capture with phys-space capture
+
+		// Calculate error and output
+		Image& conv = prec_L2_conv_phys;
+		Image& capt = prec_L2_capt_phys;
+		double err = ((conv - capt) ^ 2).sum() / (conv.getArraySize());
+		std::cout << std::setprecision(2) << std::fixed
+			<< it->dpt << "d\t\t" << it->ap << "ap\t" << it->sf << "sf\t\t"
+			<< std::setprecision(8) << std::fixed << err << std::endl;
+
+		// Create a PSFParm and add it to the priority queue
+		PSFParm ppm(it->dpt, it->ap, it->sf, err);
+		pqueue.push(ppm);
+	}
+
+	return pqueue;
 }

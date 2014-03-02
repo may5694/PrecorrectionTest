@@ -4,6 +4,8 @@
 // Folder names
 std::stringstream ss;
 std::string topfolder = "";
+std::string psffolder = "psf/";
+
 // Image windows
 std::list<ImageWindow> windowList;
 // Grid of image windows
@@ -51,8 +53,8 @@ ImageWindow* showImage(const Image& img, bool fullscreen, const std::string& tit
 	} else {
 		// Create an undecorated window and set its size and position to match the display
 		w = std::unique_ptr<ImageWindow>(new ImageWindow(img, false));
-		w->position(1680, 0);
-		w->resize(1280, 1024);
+		w->position(sx, sy);
+		w->resize(sw, sh);
 		w->setColor(0, 0, 0);
 		w->setBCs(BC_PERIODIC);
 		w->showBCs(true);
@@ -80,8 +82,8 @@ ImageWindow* showColorImage(const Image& r, const Image& g, const Image& b, bool
 	} else {
 		// Create an undecorated window and set its size and position to match the display
 		w = std::unique_ptr<ImageWindow>(new ImageWindow(r.getWidth(), r.getHeight(), buf.data(), false));
-		w->position(1680, 0);
-		w->resize(1280, 1024);
+		w->position(sx, sy);
+		w->resize(sw, sh);
 		w->setColor(0, 0, 0);
 		w->setBCs(BC_PERIODIC);
 		w->showBCs(true);

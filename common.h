@@ -11,6 +11,12 @@
 // Folder names
 extern std::stringstream ss;
 extern std::string topfolder;
+extern std::string psffolder;
+// Screen dimensions
+static const int sx = 1680;
+static const int sy = 0;
+static const int sw = 1280;
+static const int sh = 1024;
 
 // Image windows
 extern std::list<ImageWindow> windowList;
