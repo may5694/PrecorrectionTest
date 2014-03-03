@@ -91,6 +91,6 @@ public:
 typedef std::priority_queue<PSFParm, std::vector<PSFParm>, PSFCmp> PSFpqueue;
 
 // Test a range of PSFs and return a priority queue of the lowest error values
-PSFpqueue searchPSFs(const Image& in, const PSFRange& psfs, bool force = false, bool outErrMaps = true);
+PSFpqueue searchPSFs(const Image& in_disp, const PSFRange& psfs, bool force = false, bool outErrMaps = true);
 
 #endif
