@@ -77,13 +77,20 @@ public:
 		return lhs.err > rhs.err;	// Reverse order so smallest error at front
 	}
 };
+// Holds an array of PSF parameters along with the maximum index of each param
+class PSFRange : public std::vector<PSFParm> {
+public:
+	PSFRange(double dpt_min, double dpt_max, double dpt_inc,
+			 double ap_min, double ap_max, double ap_inc,
+			 double sf_min, double sf_max, double sf_inc);
+
+	int i_dpt_max;
+	int i_ap_max;
+	int i_sf_max;
+};
 typedef std::priority_queue<PSFParm, std::vector<PSFParm>, PSFCmp> PSFpqueue;
 
-// Create an array of PSF parameters to use for testing
-std::vector<PSFParm> psfRange(double dpt_min, double dpt_max, double dpt_inc,
-							  double ap_min, double ap_max, double ap_inc,
-							  double sf_min, double sf_max, double sf_inc);
 // Test a range of PSFs and return a priority queue of the lowest error values
-PSFpqueue searchPSFs(const Image& in, const std::vector<PSFParm>& psfs);
+PSFpqueue searchPSFs(const Image& in, const PSFRange& psfs, bool force = false, bool outErrMaps = true);
 
 #endif

@@ -24,10 +24,10 @@ extern int rows;
 extern int cols;
 
 // Read and write images
-Image readImage(const std::string& filename);
-void readColorImage(const Image& r, const Image& g, const Image& b, const std::string& filename);
-void writeImage(const Image& img, const std::string& filename);
-void writeColorImage(const Image& r, const Image& g, const Image& b, const std::string& filename);
+bool readImage(Image& img, const std::string& filename);
+bool readColorImage(Image& r, Image& g, Image& b, const std::string& filename);
+bool writeImage(const Image& img, const std::string& filename);
+bool writeColorImage(const Image& r, const Image& g, const Image& b, const std::string& filename);
 
 // Display images
 ImageWindow* showImage(const Image& img, bool fullscreen,

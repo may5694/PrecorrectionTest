@@ -48,7 +48,7 @@ int main(void) {
 
 	// Load the test image
 	ss << imgfolder << imgprefix << ".png";
-	Image F_disp = readImage(ss.str()); ss.str("");
+	Image F_disp; readImage(F_disp, ss.str()); ss.str("");
 	ss << topfolder << imgprefix << "_disp.png";
 	if (saveMask & sm_disp) writeImage(F_disp, ss.str()); ss.str("");
 
@@ -69,7 +69,7 @@ int main(void) {
 	disconFromFirstCamera();
 
 	// Load, then align the captured image
-	Image F_capt_cam = readImage(ss.str()); ss.str("");
+	Image F_capt_cam; readImage(F_capt_cam, ss.str()); ss.str("");
 	F_capt_cam = camAlign.alignImage(F_capt_cam, F_disp.getWidth(), F_disp.getHeight());
 	ss << topfolder << imgprefix << "_capt_cam.png";
 	writeImage(F_capt_cam, ss.str()); ss.str("");
@@ -143,13 +143,13 @@ int main(void) {
 						takeAPicture(captname.c_str());
 
 						// Align and convert captured image
-						Image F_prec_L2_capt_cam = readImage(captname);
+						Image F_prec_L2_capt_cam; readImage(F_prec_L2_capt_cam, captname);
 						F_prec_L2_capt_cam = camAlign.alignImage(F_prec_L2_capt_cam, F_disp.getWidth(), F_disp.getHeight());
 						F_prec_L2_capt_phys = imgConvert.convertImage(F_prec_L2_capt_cam, Camera, Physical);
 						writeImage(F_prec_L2_capt_phys, captname);
 					} else {
-						F_prec_L2_conv_phys = readImage(convname);
-						F_prec_L2_capt_phys = readImage(captname);
+						readImage(F_prec_L2_conv_phys, convname);
+						readImage(F_prec_L2_capt_phys, captname);
 					}
 
 					// Calculate error and output
@@ -323,7 +323,7 @@ int main(void) {
 		disconFromFirstCamera();
 
 		// Load, align, and convert captured precorrections
-		Image F_prec_L1_capt_cam = readImage(F_prec_L1_capt_cam_str);
+		Image F_prec_L1_capt_cam; readImage(F_prec_L1_capt_cam, F_prec_L1_capt_cam_str);
 		F_prec_L1_capt_cam = camAlign.alignImage(F_prec_L1_capt_cam, F_disp.getWidth(), F_disp.getHeight());
 		writeImage(F_prec_L1_capt_cam, F_prec_L1_capt_cam_str);
 		Image F_prec_L1_capt_phys = imgConvert.convertImage(F_prec_L1_capt_cam, Camera, Physical);
@@ -331,7 +331,7 @@ int main(void) {
 		Image F_prec_L1_capt_disp = imgConvert.convertImage(F_prec_L1_capt_phys, Physical, Display);
 		if (saveMask & sm_disp) writeImage(F_prec_L1_capt_disp, F_prec_L1_capt_disp_str);
 
-		Image F_prec_L2_capt_cam = readImage(F_prec_L2_capt_cam_str);
+		Image F_prec_L2_capt_cam; readImage(F_prec_L2_capt_cam, F_prec_L2_capt_cam_str);
 		F_prec_L2_capt_cam = camAlign.alignImage(F_prec_L2_capt_cam, F_disp.getWidth(), F_disp.getHeight());
 		writeImage(F_prec_L2_capt_cam, F_prec_L2_capt_cam_str);
 		Image F_prec_L2_capt_phys = imgConvert.convertImage(F_prec_L2_capt_cam, Camera, Physical);

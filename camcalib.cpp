@@ -127,7 +127,7 @@ void ImgConvert::create() {
 		// Take a photo at each speed
 		setTv(*ii);
 		takeAPicture(camfname.c_str());
-		Image cam = readImage(camfname);
+		Image cam; readImage(cam, camfname);
 
 		// Align the image and overwrite captured image
 		cam = camAlign.alignImage(cam, camAlign.sw / 2, camAlign.sh / 2);
@@ -179,7 +179,7 @@ void ImgConvert::create() {
 		windowList.pop_front();
 		sf::sleep(sf::seconds(0.1f));
 		takeAPicture(camfname.c_str());
-		Image cam = readImage(camfname);
+		Image cam; readImage(cam, camfname);
 
 		// Align the image and save over captured image
 		cam = camAlign.alignImage(cam, camAlign.sw / 2, camAlign.sh / 2);
@@ -358,16 +358,14 @@ double ImgConvert::convertValue(double in, const std::map<double, double>& usema
 	return out;
 }
 
-// PSF testing methods
-std::vector<PSFParm> psfRange(double dpt_min, double dpt_max, double dpt_inc,
-							  double ap_min, double ap_max, double ap_inc,
-							  double sf_min, double sf_max, double sf_inc) {
-	int i_dpt_max = (int)((dpt_max + dpt_inc - dpt_min) / dpt_inc + 0.5);
-	int i_ap_max = (int)((ap_max + ap_inc - ap_min) / ap_inc + 0.5);
-	int i_sf_max = (int)((sf_max + sf_inc - sf_min) / sf_inc + 0.5);
+PSFRange::PSFRange(double dpt_min, double dpt_max, double dpt_inc,
+					double ap_min, double ap_max, double ap_inc,
+					double sf_min, double sf_max, double sf_inc) {
+	i_dpt_max = (int)((dpt_max + dpt_inc - dpt_min) / dpt_inc + 0.5);
+	i_ap_max = (int)((ap_max + ap_inc - ap_min) / ap_inc + 0.5);
+	i_sf_max = (int)((sf_max + sf_inc - sf_min) / sf_inc + 0.5);
 
 	// Loop over all parameters
-	std::vector<PSFParm> psfList;
 	for (int i_dpt = 0; i_dpt < i_dpt_max; i_dpt++) {
 		double dpt_psf = dpt_min + i_dpt * dpt_inc;
 		for (int i_ap = 0; i_ap < i_ap_max; i_ap++) {
@@ -381,18 +379,27 @@ std::vector<PSFParm> psfRange(double dpt_min, double dpt_max, double dpt_inc,
 				ppm.i_ap = i_ap;
 				ppm.i_sf = i_sf;
 				// Add parameters to range
-				psfList.push_back(ppm);
+				push_back(ppm);
 			}
 		}
 	}
-	return psfList;
 }
-PSFpqueue searchPSFs(const Image& in_disp, const std::vector<PSFParm>& psfs) {
+
+// PSF testing methods
+PSFpqueue searchPSFs(const Image& in_disp, const PSFRange& psfs, bool force, bool outErrMaps) {
 	// Convert the input image into physical space
 	Image in_phys = imgConvert.convertImage(in_disp, Display, Physical);
 
 	// Create a priority queue to order the PSFs by error rating
 	PSFpqueue pqueue;
+
+	// Create an array of images to visualize the error
+	std::vector<Image> errMaps;
+	if (outErrMaps) {
+		for (int i_dpt = 0; i_dpt < psfs.i_dpt_max; i_dpt++) {
+			errMaps.push_back(Image(psfs.i_sf_max, psfs.i_ap_max));
+		}
+	}
 
 	// Loop through each PSF to test
 	std::cout << "Diopters\tAperture\tScale\t\tError" << std::endl;
@@ -403,30 +410,34 @@ PSFpqueue searchPSFs(const Image& in_disp, const std::vector<PSFParm>& psfs) {
 		ss << topfolder << captfolder << "img_" << it->paramStr << "_prec_L2_capt_phys.png";
 		std::string captname = ss.str(); ss.str("");
 
-		// Load the PSF
-		ss << psffolder << "psf_" << it->paramStr << ".dbl";
-		Image psf; psf.fromBinary(ss.str().c_str()); ss.str();
+		// Try to load the images first in case they already exist
+		Image prec_L2_conv_phys, prec_L2_capt_phys;
+		if (!readImage(prec_L2_conv_phys, convname) || !readImage(prec_L2_capt_phys, captname) || force) {
+			// Load the PSF
+			ss << psffolder << "psf_" << it->paramStr << ".dbl";
+			Image psf; psf.fromBinary(ss.str().c_str()); ss.str();
 
-		// Precorrect the input image
-		Options opts; opts.tv = TVL2; opts.maxiter = 1; opts.print = false;
-		Image prec_L2_phys = precorrect(in_phys, psf, 9.3e4, opts);
-		Image prec_L2_disp = imgConvert.convertImage(prec_L2_phys, Physical, Display);
+			// Precorrect the input image
+			Options opts; opts.tv = TVL2; opts.maxiter = 1; opts.print = false;
+			Image prec_L2_phys = precorrect(in_phys, psf, 9.3e4, opts);
+			Image prec_L2_disp = imgConvert.convertImage(prec_L2_phys, Physical, Display);
 
-		// Convolve precorrected image
-		Image prec_L2_conv_phys = convolve(prec_L2_phys, psf, BC_PERIODIC);
-		writeImage(prec_L2_conv_phys, convname);
+			// Convolve precorrected image
+			prec_L2_conv_phys = convolve(prec_L2_phys, psf, BC_PERIODIC);
+			writeImage(prec_L2_conv_phys, convname);
 
-		// Capture precorrected image
-		showImage(prec_L2_disp, true);
-		if (windowList.size() > 1) windowList.pop_front();
-		sf::sleep(sf::seconds(0.1f));
-		takeAPicture(captname.c_str());
+			// Capture precorrected image
+			showImage(prec_L2_disp, true);
+			if (windowList.size() > 1) windowList.pop_front();
+			sf::sleep(sf::seconds(0.1f));
+			takeAPicture(captname.c_str());
 
-		// Align and convert captured image
-		Image prec_L2_capt_cam = readImage(captname);
-		prec_L2_capt_cam = camAlign.alignImage(prec_L2_capt_cam, in_phys.getWidth(), in_phys.getHeight());
-		Image prec_L2_capt_phys = imgConvert.convertImage(prec_L2_capt_cam, Camera, Physical);
-		writeImage(prec_L2_capt_phys, captname);	// Replace cam-space capture with phys-space capture
+			// Align and convert captured image
+			Image prec_L2_capt_cam; readImage(prec_L2_capt_cam, captname);
+			prec_L2_capt_cam = camAlign.alignImage(prec_L2_capt_cam, in_phys.getWidth(), in_phys.getHeight());
+			prec_L2_capt_phys = imgConvert.convertImage(prec_L2_capt_cam, Camera, Physical);
+			writeImage(prec_L2_capt_phys, captname);	// Replace cam-space capture with phys-space capture
+		}
 
 		// Calculate error and output
 		Image& conv = prec_L2_conv_phys;
@@ -436,9 +447,24 @@ PSFpqueue searchPSFs(const Image& in_disp, const std::vector<PSFParm>& psfs) {
 			<< it->dpt << "d\t\t" << it->ap << "ap\t" << it->sf << "sf\t\t"
 			<< std::setprecision(8) << std::fixed << err << std::endl;
 
+		// Write the error as a pixel value in the corresponding error map
+		if (outErrMaps) {
+			errMaps [it->i_dpt].setPixel(it->i_sf, it->i_ap, err);
+		}
+
 		// Create a PSFParm and add it to the priority queue
 		PSFParm ppm(it->dpt, it->ap, it->sf, err);
 		pqueue.push(ppm);
+	}
+
+	// Save the error maps
+	if (outErrMaps) {
+		int i = 0;
+		for (auto it = errMaps.begin(); it != errMaps.end(); it++) {
+			ss << topfolder << captfolder << "err_" << i << ".png";
+			writeImage(it->scale().equalize(), ss.str()); ss.str("");
+			i++;
+		}
 	}
 
 	return pqueue;

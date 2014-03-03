@@ -14,32 +14,35 @@ std::vector<std::string> titleVec;
 int rows = 1, cols = 1, imw = 120, imh = 0;
 
 // Read and write images
-Image readImage(const std::string& filename) {
-	sf::Image img; img.loadFromFile(filename);
-	Image out; out.fromUchar(img.getSize().x, img.getSize().y, 4, 0x7, img.getPixelsPtr());
-	return out;
+bool readImage(Image& img, const std::string& filename) {
+	sf::Image sfimg;
+	if (!sfimg.loadFromFile(filename)) return false;
+	img.fromUchar(sfimg.getSize().x, sfimg.getSize().y, 4, 0x7, sfimg.getPixelsPtr());
+	return true;
 }
-void readColorImage(Image& r, Image& g, Image& b, const std::string& filename) {
-	sf::Image img; img.loadFromFile(filename);
-	r.fromUchar(img.getSize().x, img.getSize().y, 4, 0x1, img.getPixelsPtr());
-	g.fromUchar(img.getSize().x, img.getSize().y, 4, 0x2, img.getPixelsPtr());
-	b.fromUchar(img.getSize().x, img.getSize().y, 4, 0x4, img.getPixelsPtr());
+bool readColorImage(Image& r, Image& g, Image& b, const std::string& filename) {
+	sf::Image sfimg;
+	if (!sfimg.loadFromFile(filename)) return false;
+	r.fromUchar(sfimg.getSize().x, sfimg.getSize().y, 4, 0x1, sfimg.getPixelsPtr());
+	g.fromUchar(sfimg.getSize().x, sfimg.getSize().y, 4, 0x2, sfimg.getPixelsPtr());
+	b.fromUchar(sfimg.getSize().x, sfimg.getSize().y, 4, 0x4, sfimg.getPixelsPtr());
+	return true;
 }
-void writeImage(const Image& img, const std::string& filename) {
+bool writeImage(const Image& img, const std::string& filename) {
 	std::vector<sf::Uint8> buf; buf.resize(img.getArraySize() * 4);
 	img.toUchar(4, 0x7, buf.data(), true);
 
 	sf::Image saveImg; saveImg.create(img.getWidth(), img.getHeight(), buf.data());
-	saveImg.saveToFile(filename);
+	return saveImg.saveToFile(filename);
 }
-void writeColorImage(const Image& r, const Image& g, const Image& b, const std::string& filename) {
+bool writeColorImage(const Image& r, const Image& g, const Image& b, const std::string& filename) {
 	std::vector<sf::Uint8> buf; buf.resize(r.getArraySize() * 4);
 	r.toUchar(4, 0x1, buf.data(), true);
 	g.toUchar(4, 0x2, buf.data(), false);
 	b.toUchar(4, 0x4, buf.data(), false);
 
 	sf::Image saveImg; saveImg.create(r.getWidth(), r.getHeight(), buf.data());
-	saveImg.saveToFile(filename);
+	return saveImg.saveToFile(filename);
 }
 
 // Display images
