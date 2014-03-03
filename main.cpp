@@ -10,14 +10,14 @@ const int sm_cam = 0x4;
 const int sm_phys = 0x2;
 const int sm_disp = 0x1;
 
-double dpt_cam = 2.25;
+double dpt_cam = 3.00;
 std::string imgfolder = "img/";
 std::string imgprefix = "lenna";
 std::string alignName;
 std::string convertName;
 
 int main(void) {
-	ss << "camera_2.0m_f22_" << std::setprecision(2) << std::fixed << dpt_cam << "d_1/";
+	ss << "camera_2.0m_f22_" << std::setprecision(2) << std::fixed << dpt_cam << "d_0/";
 	topfolder = ss.str(); ss.str("");
 	ss << topfolder << calibfolder << "align.dat";
 	alignName = ss.str(); ss.str("");
@@ -78,7 +78,8 @@ int main(void) {
 	if (saveMask & sm_disp) writeImage(F_capt_disp, ss.str()); ss.str("");
 
 	// Search the PSF parameter space for the optimal PSF
-	PSFRange psfRange(dpt_cam, dpt_cam, 0.1, 4.0, 7.0, 0.1, 0.3, 0.8, 0.1);
+	//PSFRange psfRange(dpt_cam, dpt_cam, 0.1, 4.0, 7.0, 0.1, 0.3, 0.8, 0.1);
+	PSFRange psfRange(dpt_cam, dpt_cam, 0.1, 6.0, 6.0, 0.1, 0.5, 0.5, 0.1);
 	PSFpqueue pqueue = searchPSFs(F_disp, psfRange);
 
 	// Create a log file
@@ -87,7 +88,7 @@ int main(void) {
 	if (!logfp) std::cout << "Could not open log file!" << std::endl;
 
 	for (int i = 0; !pqueue.empty() && i < numBest; i++) {
-		const PSFParm& ppm = pqueue.top(); pqueue.pop();
+		PSFParm ppm = pqueue.top(); pqueue.pop();
 
 		// Load the PSF
 		ss << psffolder << "psf_" << ppm.paramStr << ".dbl";
@@ -106,7 +107,7 @@ int main(void) {
 
 		// Output MSE
 		ss << std::setprecision(2) << std::fixed
-			<< ppm.dpt << "d\t\t" << ppm.ap << "ap\t" << ppm.sf << "sf\t\t"
+			<< ppm.dpt << "d\t\t" << ppm.ap << "ap\t\t" << ppm.sf << "sf\t\t"
 			<< std::setprecision(8) << std::fixed << ppm.err << std::endl;
 		std::string outParam = ss.str(); ss.str("");
 		std::cout << std::endl << "# " << i+1 << ":" << std::endl << outParam;

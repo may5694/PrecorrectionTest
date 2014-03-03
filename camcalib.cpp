@@ -78,7 +78,7 @@ bool CamAlign::write(const std::string& filename) {
 Image CamAlign::alignImage(const Image& in, int iw, int ih) {
 	// Create a second transform for the image size
 	sf::Transform t1 = sf::Transform::Identity;
-	t1.translate(-(sw / iw) / 2.0, -(sh - ih) / 2.0);
+	t1.translate(-(sw - iw) / 2.0, -(sh - ih) / 2.0);
 	// Combine the two transforms
 	sf::Transform tf = t1 * t;
 
@@ -401,6 +401,12 @@ PSFpqueue searchPSFs(const Image& in_disp, const PSFRange& psfs, bool force, boo
 		}
 	}
 
+	// Temporarily disable SFML error output
+	std::streambuf* prevErrBuf = sf::err().rdbuf(NULL);
+
+	// Connect to the camera
+	connectToFirstCamera();
+
 	// Loop through each PSF to test
 	std::cout << "Diopters\tAperture\tScale\t\tError" << std::endl;
 	for (auto it = psfs.begin(); it != psfs.end(); it++) {
@@ -415,7 +421,7 @@ PSFpqueue searchPSFs(const Image& in_disp, const PSFRange& psfs, bool force, boo
 		if (!readImage(prec_L2_conv_phys, convname) || !readImage(prec_L2_capt_phys, captname) || force) {
 			// Load the PSF
 			ss << psffolder << "psf_" << it->paramStr << ".dbl";
-			Image psf; psf.fromBinary(ss.str().c_str()); ss.str();
+			Image psf; psf.fromBinary(ss.str().c_str()); ss.str("");
 
 			// Precorrect the input image
 			Options opts; opts.tv = TVL2; opts.maxiter = 1; opts.print = false;
@@ -444,7 +450,7 @@ PSFpqueue searchPSFs(const Image& in_disp, const PSFRange& psfs, bool force, boo
 		Image& capt = prec_L2_capt_phys;
 		double err = ((conv - capt) ^ 2).sum() / (conv.getArraySize());
 		std::cout << std::setprecision(2) << std::fixed
-			<< it->dpt << "d\t\t" << it->ap << "ap\t" << it->sf << "sf\t\t"
+			<< it->dpt << "d\t\t" << it->ap << "ap\t\t" << it->sf << "sf\t\t"
 			<< std::setprecision(8) << std::fixed << err << std::endl;
 
 		// Write the error as a pixel value in the corresponding error map
@@ -456,6 +462,12 @@ PSFpqueue searchPSFs(const Image& in_disp, const PSFRange& psfs, bool force, boo
 		PSFParm ppm(it->dpt, it->ap, it->sf, err);
 		pqueue.push(ppm);
 	}
+
+	// Disconnect from the camera
+	disconFromFirstCamera();
+
+	// Re-enable SFML error output
+	sf::err().rdbuf(prevErrBuf);
 
 	// Save the error maps
 	if (outErrMaps) {

@@ -56,7 +56,7 @@ struct PSFParm {
 		dpt(pdpt), ap(pap), sf(psf), err(perr) {
 		// Create string representation
 		ss << std::setprecision(2) << std::fixed
-			<< dpt << "_" << ap << "_" << sf;
+			<< dpt << "d_" << ap << "ap_" << sf << "sf";
 		paramStr = ss.str(); ss.str("");
 		i_dpt = i_ap = i_sf = 0;
 	}
