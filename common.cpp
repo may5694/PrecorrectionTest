@@ -5,6 +5,7 @@
 std::stringstream ss;
 std::string topfolder = "";
 std::string psffolder = "psf/";
+std::string imgfolder = "img/";
 
 // Image windows
 std::list<ImageWindow> windowList;

@@ -12,6 +12,7 @@
 extern std::stringstream ss;
 extern std::string topfolder;
 extern std::string psffolder;
+extern std::string imgfolder;
 // Screen dimensions
 static const int sx = 1680;
 static const int sy = 0;

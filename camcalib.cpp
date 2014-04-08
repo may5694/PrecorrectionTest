@@ -421,7 +421,7 @@ PSFpqueue searchPSFs(const Image& in_disp, const PSFRange& psfs, bool force, boo
 		if (!readImage(prec_L2_conv_phys, convname) || !readImage(prec_L2_capt_phys, captname) || force) {
 			// Load the PSF
 			ss << psffolder << "psf_" << it->paramStr << ".dbl";
-			Image psf; psf.fromBinary(ss.str().c_str()); ss.str("");
+			Image psf; psf.fromBinary(ss.str()); ss.str("");
 
 			// Precorrect the input image
 			Options opts; opts.tv = TVL2; opts.maxiter = 1; opts.print = false;
