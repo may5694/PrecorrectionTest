@@ -1,229 +1,266 @@
 #include <iostream>
 #include <iomanip>
 #include "precorrection.h"
-#include "JNB.h"
 #include "common.h"
 #include "camcalib.h"
-#include "canoninterface.h"
 
-const int sm_cam = 0x4;
-const int sm_phys = 0x2;
-const int sm_disp = 0x1;
+int main() {
+	std::string psffolder = "psf/";
+	//std::string path = "//matrix.cs.purdue.edu/CGVLab/may5/precorrection/Hamlet/ignacio/";
+	std::string path = "C:/Users/Chris/Pictures/Precorrection/Hamlet/tablet/";
+	std::string iterfolder = "iter/";
+	std::string img = "text";
+	bool color = false;
+	sf::err().rdbuf(NULL);
 
-double dpt_cam = 3.00;
-std::string imgfolder = "img/";
-std::string imgprefix = "lenna";
-std::string alignName;
-std::string convertName;
+	ss << path << img << ".png";
+	Image r, g, b;
+	if (color) { readColorImage(r, g, b, ss.str()); ss.str(""); }
+	else { readImage(r, ss.str()); ss.str(""); }
 
-int main(void) {
-	ss << "camera_2.0m_f22_" << std::setprecision(2) << std::fixed << dpt_cam << "d_0/";
-	topfolder = ss.str(); ss.str("");
-	ss << topfolder << calibfolder << "align.dat";
-	alignName = ss.str(); ss.str("");
-	ss << topfolder << calibfolder << "convert.dat";
-	convertName = ss.str(); ss.str("");
+	double dpt = 2.0;
+	PSFParm ppm(dpt, 6.0, 0.5, 0.0);
+	ss << psffolder << "psf_" << ppm.paramStr << ".dbl";
+	Image psf; psf.fromBinary(ss.str()); ss.str("");
 
-	int saveMask = sm_disp;			// Which spaces to save
-	int numBest = 5;				// Pick the top numBest images to fully test
-
-	// Align the camera
-	if (!camAlign.read(alignName)) {
-		camAlign.create(sw, sh);
-		loop();		// Loop to continue displaying alignment image (useful for focusing camera)
-
-		// Return here because alignment must be created in Matlab!
-		return 0;
+	Image r_conv, g_conv, b_conv;
+	r_conv = convolve(r, psf, BC_PERIODIC);
+	if (color) {
+		g_conv = convolve(g, psf, BC_PERIODIC);
+		b_conv = convolve(b, psf, BC_PERIODIC);
 	}
-	// Calibrate the camera intensity
-	if (!imgConvert.read(convertName)) {
-		imgConvert.create();
-		imgConvert.write(convertName);
+	ss << path << img << "_conv_" << dpt << "d.png";
+	if (color) { writeColorImage(r_conv, g_conv, b_conv, ss.str()); ss.str(""); }
+	else { writeImage(r_conv, ss.str()); ss.str(""); }
+
+	std::vector<std::pair<double, double>> contrasts;
+	contrasts.push_back(std::pair<double, double>(0.4, 0.1));
+	for (auto contrast = contrasts.begin(); contrast != contrasts.end(); contrast++) {
+		int cnt_i = std::distance(contrasts.begin(), contrast) + 1;
+		int cnt_max = std::distance(contrasts.begin(), contrasts.end());
+
+		Image r_contrast, g_contrast, b_contrast;
+		r_contrast = r.contrast(contrast->first) + contrast->second;
+		if (color) {
+			g_contrast = g.contrast(contrast->first) + contrast->second;
+			b_contrast = b.contrast(contrast->first) + contrast->second;
+		}
+		ss << path << img << "_" << contrast->first << "c_" << contrast->second << "o.png";
+		if (color) { writeColorImage(r_contrast, g_contrast, b_contrast, ss.str()); ss.str(""); }
+		else { writeImage(r_contrast, ss.str()); ss.str(""); }
+
+		Image r_contrast_conv, g_contrast_conv, b_contrast_conv;
+		r_contrast_conv = convolve(r_contrast, psf, BC_PERIODIC);
+		if (color) {
+			g_contrast_conv = convolve(g_contrast, psf, BC_PERIODIC);
+			b_contrast_conv = convolve(b_contrast, psf, BC_PERIODIC);
+		}
+		ss << path << img << "_conv_" << dpt << "d_" << contrast->first << "c_" << contrast->second << "o.png";
+		if (color) { writeColorImage(r_contrast_conv, g_contrast_conv, b_contrast_conv, ss.str()); ss.str(""); }
+		else { writeImage(r_contrast_conv, ss.str()); ss.str(""); }
+
+		Options opts; opts.tv = TVL2; opts.relchg = DBL_EPSILON; opts.maxiter = 150;
+		std::string tvln = opts.tv == TVL1 ? "L1" : "L2";
+		std::vector<double> thetas;
+		//thetas.push_back(6.4e3);
+		//thetas.push_back(1.28e4);
+		//thetas.push_back(2.56e4);
+		//thetas.push_back(5.12e4);
+		thetas.push_back(1.024e5);
+		//thetas.push_back(2.048e5);
+		for (auto theta = thetas.begin(); theta != thetas.end(); theta++) {
+			int theta_i = std::distance(thetas.begin(), theta) + 1;
+			int theta_max = std::distance(thetas.begin(), thetas.end());
+			std::cout << cnt_i << " / " << cnt_max << "\t" << theta_i << " / " << theta_max << std::endl;
+
+			ss << contrast->first << "c_" << contrast->second << "o_" << dpt << "d_" << *theta << "t";
+			std::string paramstr = ss.str(); ss.str("");
+
+			bool force = true;
+			Image r_prec, g_prec, b_prec;
+			std::vector<Iteration> r_hist, g_hist, b_hist;
+			ss << path << img << "_prec" << tvln << "_" << paramstr <<  ".png";
+			if ((color && !readColorImage(r_prec, g_prec, b_prec, ss.str())) ||
+				(!color && !readImage(r_prec, ss.str())) || force) {
+				r_prec = precorrect(r_contrast, psf, *theta, opts, NULL);
+				if (color) {
+					g_prec = precorrect(g_contrast, psf, *theta, opts, NULL);
+					b_prec = precorrect(b_contrast, psf, *theta, opts, NULL);
+				}
+				if (color) { writeColorImage(r_prec, g_prec, b_prec, ss.str()); }
+				else { writeImage(r_prec, ss.str()); }
+			}
+			ss.str("");
+
+			std::cout << "RTV: " << Image::RTV(r, r_prec) << std::endl;
+
+			Image r_prec_conv, g_prec_conv, b_prec_conv;
+			ss << path << img << "_prec" << tvln << "_conv_" << paramstr << ".png";
+			if ((color && !readColorImage(r_prec_conv, g_prec_conv, b_prec_conv, ss.str())) ||
+				(!color && !readImage(r_prec_conv, ss.str())) || force) {
+				r_prec_conv = convolve(r_prec, psf, BC_PERIODIC);
+				if (color) {
+					g_prec_conv = convolve(g_prec, psf, BC_PERIODIC);
+					b_prec_conv = convolve(b_prec, psf, BC_PERIODIC);
+				}
+				if (color) { writeColorImage(r_prec_conv, g_prec_conv, b_prec_conv, ss.str()); }
+				else { writeImage(r_prec_conv, ss.str()); }
+			}
+			ss.str("");
+
+			// Save iterations
+			for (int it = 0; it < r_hist.size(); it++) {
+				ss << path << iterfolder << img << "_prec" << tvln << "_" << paramstr << "_" << it+1 << "i.png";
+				if (color) { writeColorImage(r_hist[it].X, g_hist[it].X, b_hist[it].X, ss.str()); ss.str(""); }
+				else { writeImage(r_hist[it].X, ss.str()); ss.str(""); }
+
+				Image r_prec_conv_i, g_prec_conv_i, b_prec_conv_i;
+				r_prec_conv_i = convolve(r_hist[it].X, psf, BC_PERIODIC);
+				if (color) {
+					g_prec_conv_i = convolve(g_hist[it].X, psf, BC_PERIODIC);
+					b_prec_conv_i = convolve(b_hist[it].X, psf, BC_PERIODIC);
+				}
+				ss << path << iterfolder << img << "_prec" << tvln << "_conv_" << paramstr << "_" << it+1 << "i.png";
+				if (color) { writeColorImage(r_prec_conv_i, g_prec_conv_i, b_prec_conv_i, ss.str()); ss.str(""); }
+				else { writeImage(r_prec_conv_i, ss.str()); ss.str(""); }
+			}
+		}
 	}
-
-	// Load the test image
-	ss << imgfolder << imgprefix << ".png";
-	Image F_disp; readImage(F_disp, ss.str()); ss.str("");
-	ss << topfolder << imgprefix << "_disp.png";
-	if (saveMask & sm_disp) writeImage(F_disp, ss.str()); ss.str("");
-
-	// Convert original image into physical image space
-	Image F_phys = imgConvert.convertImage(F_disp, Display, Physical);
-	ss << topfolder << imgprefix << "_phys.png";
-	if (saveMask & sm_phys) writeImage(F_phys, ss.str()); ss.str("");
-	Image F_cam = imgConvert.convertImage(F_phys, Physical, Camera);
-	ss << topfolder << imgprefix << "_cam.png";
-	if (saveMask & sm_cam) writeImage(F_cam, ss.str()); ss.str("");
-
-	// Capture the test image
-	connectToFirstCamera();
-	showImage(F_disp, true);
-	sf::sleep(sf::seconds(1.0f));
-	ss << topfolder << imgprefix << "_capt_cam.png";
-	takeAPicture(ss.str().c_str());
-	disconFromFirstCamera();
-
-	// Load, then align the captured image
-	Image F_capt_cam; readImage(F_capt_cam, ss.str()); ss.str("");
-	F_capt_cam = camAlign.alignImage(F_capt_cam, F_disp.getWidth(), F_disp.getHeight());
-	ss << topfolder << imgprefix << "_capt_cam.png";
-	writeImage(F_capt_cam, ss.str()); ss.str("");
-
-	// Convert captured image into physical and display space
-	Image F_capt_phys = imgConvert.convertImage(F_capt_cam, Camera, Physical);
-	ss << topfolder << imgprefix << "_capt_phys.png";
-	if (saveMask & sm_phys) writeImage(F_capt_phys, ss.str()); ss.str("");
-	Image F_capt_disp = imgConvert.convertImage(F_capt_phys, Physical, Display);
-	ss << topfolder << imgprefix << "_capt_disp.png";
-	if (saveMask & sm_disp) writeImage(F_capt_disp, ss.str()); ss.str("");
-
-	// Search the PSF parameter space for the optimal PSF
-	//PSFRange psfRange(dpt_cam, dpt_cam, 0.1, 4.0, 7.0, 0.1, 0.3, 0.8, 0.1);
-	PSFRange psfRange(dpt_cam, dpt_cam, 0.1, 6.0, 6.0, 0.1, 0.5, 0.5, 0.1);
-	PSFpqueue pqueue = searchPSFs(F_disp, psfRange);
-
-	// Create a log file
-	ss << topfolder << imgprefix << "_log.txt";
-	FILE* logfp = fopen(ss.str().c_str(), "w"); ss.str("");
-	if (!logfp) std::cout << "Could not open log file!" << std::endl;
-
-	for (int i = 0; !pqueue.empty() && i < numBest; i++) {
-		PSFParm ppm = pqueue.top(); pqueue.pop();
-
-		// Load the PSF
-		ss << psffolder << "psf_" << ppm.paramStr << ".dbl";
-		Image PSF; PSF.fromBinary(ss.str().c_str()); ss.str("");
-
-		// Convolve the original image
-		Image F_conv_phys = convolve(F_phys, PSF, BC_PERIODIC);
-		Image F_conv_disp = imgConvert.convertImage(F_conv_phys, Physical, Display);
-		Image F_conv_cam = imgConvert.convertImage(F_conv_phys, Physical, Camera);
-		ss << topfolder << imgprefix << "_" << ppm.paramStr << "_conv_phys.png";
-		if (saveMask & sm_phys) writeImage(F_conv_phys, ss.str()); ss.str("");
-		ss << topfolder << imgprefix << "_" << ppm.paramStr << "_conv_disp.png";
-		if (saveMask & sm_disp) writeImage(F_conv_disp, ss.str()); ss.str("");
-		ss << topfolder << imgprefix << "_" << ppm.paramStr << "_conv_cam.png";
-		if (saveMask & sm_cam) writeImage(F_conv_cam, ss.str()); ss.str("");
-
-		// Output MSE
-		ss << std::setprecision(2) << std::fixed
-			<< ppm.dpt << "d\t\t" << ppm.ap << "ap\t\t" << ppm.sf << "sf\t\t"
-			<< std::setprecision(8) << std::fixed << ppm.err << std::endl;
-		std::string outParam = ss.str(); ss.str("");
-		std::cout << std::endl << "# " << i+1 << ":" << std::endl << outParam;
-		if (logfp) fprintf(logfp, outParam.c_str());
-
-
-		////////////////////////////// PRECORRECT //////////////////////////////
-
-		Image F_prec_L1_phys, F_prec_L1_disp, F_prec_L1_cam;
-		Image F_prec_L2_phys, F_prec_L2_disp, F_prec_L2_cam;
-		ss << topfolder << imgprefix << "_" << ppm.paramStr << "_prec_L1_phys.png";
-		std::string F_prec_L1_phys_str = ss.str(); ss.str("");
-		ss << topfolder << imgprefix << "_" << ppm.paramStr << "_prec_L1_conv_phys.png";
-		std::string F_prec_L1_conv_phys_str = ss.str(); ss.str("");
-		ss << topfolder << imgprefix << "_" << ppm.paramStr << "_prec_L1_disp.png";
-		std::string F_prec_L1_disp_str = ss.str(); ss.str("");
-		ss << topfolder << imgprefix << "_" << ppm.paramStr << "_prec_L1_conv_disp.png";
-		std::string F_prec_L1_conv_disp_str = ss.str(); ss.str("");
-		ss << topfolder << imgprefix << "_" << ppm.paramStr << "_prec_L1_cam.png";
-		std::string F_prec_L1_cam_str = ss.str(); ss.str("");
-		ss << topfolder << imgprefix << "_" << ppm.paramStr << "_prec_L1_conv_cam.png";
-		std::string F_prec_L1_conv_cam_str = ss.str(); ss.str("");
-		ss << topfolder << imgprefix << "_" << ppm.paramStr << "_prec_L2_phys.png";
-		std::string F_prec_L2_phys_str = ss.str(); ss.str("");
-		ss << topfolder << imgprefix << "_" << ppm.paramStr << "_prec_L2_conv_phys.png";
-		std::string F_prec_L2_conv_phys_str = ss.str(); ss.str("");
-		ss << topfolder << imgprefix << "_" << ppm.paramStr << "_prec_L2_disp.png";
-		std::string F_prec_L2_disp_str = ss.str(); ss.str("");
-		ss << topfolder << imgprefix << "_" << ppm.paramStr << "_prec_L2_conv_disp.png";
-		std::string F_prec_L2_conv_disp_str = ss.str(); ss.str("");
-		ss << topfolder << imgprefix << "_" << ppm.paramStr << "_prec_L2_cam.png";
-		std::string F_prec_L2_cam_str = ss.str(); ss.str("");
-		ss << topfolder << imgprefix << "_" << ppm.paramStr << "_prec_L2_conv_cam.png";
-		std::string F_prec_L2_conv_cam_str = ss.str(); ss.str("");
-
-		// Precorrect the test image
-		Options opts; opts.tv = TVL1;
-		F_prec_L1_phys = precorrect(F_phys, PSF, 9.3e4, opts);
-		if (saveMask & sm_phys) writeImage(F_prec_L1_phys, F_prec_L1_phys_str);
-		F_prec_L1_disp = imgConvert.convertImage(F_prec_L1_phys, Physical, Display);
-		if (saveMask & sm_disp) writeImage(F_prec_L1_disp, F_prec_L1_disp_str);
-		F_prec_L1_cam = imgConvert.convertImage(F_prec_L1_phys, Physical, Camera);
-		if (saveMask & sm_cam) writeImage(F_prec_L1_cam, F_prec_L1_cam_str);
-
-		opts.tv = TVL2;
-		F_prec_L2_phys = precorrect(F_phys, PSF, 9.3e4, opts);
-		if (saveMask & sm_phys) writeImage(F_prec_L2_phys, F_prec_L2_phys_str);
-		F_prec_L2_disp = imgConvert.convertImage(F_prec_L2_phys, Physical, Display);
-		if (saveMask & sm_disp) writeImage(F_prec_L2_disp, F_prec_L2_disp_str);
-		F_prec_L2_cam = imgConvert.convertImage(F_prec_L2_phys, Physical, Camera);
-		if (saveMask & sm_cam) writeImage(F_prec_L2_cam, F_prec_L2_cam_str);
-
-		// Convolve precorrections
-		Image F_prec_L1_conv_phys = convolve(F_prec_L1_phys, PSF, BC_PERIODIC);
-		if (saveMask & sm_phys) writeImage(F_prec_L1_conv_phys, F_prec_L1_conv_phys_str);
-		Image F_prec_L1_conv_disp = imgConvert.convertImage(F_prec_L1_conv_phys, Physical, Display);
-		if (saveMask & sm_disp) writeImage(F_prec_L1_conv_disp, F_prec_L1_conv_disp_str);
-		Image F_prec_L1_conv_cam = imgConvert.convertImage(F_prec_L1_conv_phys, Physical, Camera);
-		if (saveMask & sm_cam) writeImage(F_prec_L1_conv_cam, F_prec_L1_conv_cam_str);
-
-		Image F_prec_L2_conv_phys = convolve(F_prec_L2_phys, PSF, BC_PERIODIC);
-		if (saveMask & sm_phys) writeImage(F_prec_L2_conv_phys, F_prec_L2_conv_phys_str);
-		Image F_prec_L2_conv_disp = imgConvert.convertImage(F_prec_L2_conv_phys, Physical, Display);
-		if (saveMask & sm_disp) writeImage(F_prec_L2_conv_disp, F_prec_L2_conv_disp_str);
-		Image F_prec_L2_conv_cam = imgConvert.convertImage(F_prec_L2_conv_phys, Physical, Camera);
-		if (saveMask & sm_cam) writeImage(F_prec_L2_conv_cam, F_prec_L2_conv_cam_str);
-
-
-		///////////////////////////////////// CAPTURE PRECORRECTIONS /////////////////////
-
-		ss << topfolder << imgprefix << "_" << ppm.paramStr << "_prec_L1_capt_cam.png";
-		std::string F_prec_L1_capt_cam_str = ss.str(); ss.str("");
-		ss << topfolder << imgprefix << "_" << ppm.paramStr << "_prec_L1_capt_phys.png";
-		std::string F_prec_L1_capt_phys_str = ss.str(); ss.str("");
-		ss << topfolder << imgprefix << "_" << ppm.paramStr << "_prec_L1_capt_disp.png";
-		std::string F_prec_L1_capt_disp_str = ss.str(); ss.str("");
-		ss << topfolder << imgprefix << "_" << ppm.paramStr << "_prec_L2_capt_cam.png";
-		std::string F_prec_L2_capt_cam_str = ss.str(); ss.str("");
-		ss << topfolder << imgprefix << "_" << ppm.paramStr << "_prec_L2_capt_phys.png";
-		std::string F_prec_L2_capt_phys_str = ss.str(); ss.str("");
-		ss << topfolder << imgprefix << "_" << ppm.paramStr << "_prec_L2_capt_disp.png";
-		std::string F_prec_L2_capt_disp_str = ss.str(); ss.str("");
-
-		// Display precorrected images and capture
-		connectToFirstCamera();
-		showImage(F_prec_L1_disp, true);
-		sf::sleep(sf::seconds(1.0f));
-		takeAPicture(F_prec_L1_capt_cam_str.c_str());
-
-		showImage(F_prec_L2_disp, true);
-		sf::sleep(sf::seconds(1.0f));
-		takeAPicture(F_prec_L2_capt_cam_str.c_str());
-		disconFromFirstCamera();
-
-		// Load, align, and convert captured precorrections
-		Image F_prec_L1_capt_cam; readImage(F_prec_L1_capt_cam, F_prec_L1_capt_cam_str);
-		F_prec_L1_capt_cam = camAlign.alignImage(F_prec_L1_capt_cam, F_disp.getWidth(), F_disp.getHeight());
-		writeImage(F_prec_L1_capt_cam, F_prec_L1_capt_cam_str);
-		Image F_prec_L1_capt_phys = imgConvert.convertImage(F_prec_L1_capt_cam, Camera, Physical);
-		if (saveMask & sm_phys) writeImage(F_prec_L1_capt_phys, F_prec_L1_capt_phys_str);
-		Image F_prec_L1_capt_disp = imgConvert.convertImage(F_prec_L1_capt_phys, Physical, Display);
-		if (saveMask & sm_disp) writeImage(F_prec_L1_capt_disp, F_prec_L1_capt_disp_str);
-
-		Image F_prec_L2_capt_cam; readImage(F_prec_L2_capt_cam, F_prec_L2_capt_cam_str);
-		F_prec_L2_capt_cam = camAlign.alignImage(F_prec_L2_capt_cam, F_disp.getWidth(), F_disp.getHeight());
-		writeImage(F_prec_L2_capt_cam, F_prec_L2_capt_cam_str);
-		Image F_prec_L2_capt_phys = imgConvert.convertImage(F_prec_L2_capt_cam, Camera, Physical);
-		if (saveMask & sm_phys) writeImage(F_prec_L2_capt_phys, F_prec_L2_capt_phys_str);
-		Image F_prec_L2_capt_disp = imgConvert.convertImage(F_prec_L2_capt_phys, Physical, Display);
-		if (saveMask & sm_disp) writeImage(F_prec_L2_capt_disp, F_prec_L2_capt_disp_str);
-	}
-
-	if (logfp) fclose(logfp);
-	std::cout << "Done!" << std::endl;
-
-	loop();
 
 	return 0;
 }
+
+#if 0
+int main(void) {
+	topfolder = "thetaVsRTV/";
+	psffolder = "psf/";
+	std::string precfolder = "prec/";
+	std::string imgprefix = "lenna";
+
+	// Load the test image
+	ss << imgfolder << imgprefix << ".png";
+	Image F; readImage(F, ss.str()); ss.str("");
+	// Reduce contrast to 70%
+	//F = F.contrast(0.7);
+
+	// Load the PSF
+	PSFParm ppm(2.00, 6.00, 0.50, 0.0);
+	ss << psffolder << "psf_" << ppm.paramStr << ".dbl";
+	Image psf; psf.fromBinary(ss.str()); ss.str("");
+
+	Options optsL1;
+	optsL1.tv = TVL2;
+	// Enforce 30 iterations
+	optsL1.relchg = DBL_EPSILON;
+	optsL1.maxiter = 30;
+
+	double thetaMin = 5e3;
+	double thetaMax = 5e3;
+	double thetaInc = 8e2;
+	int i_theta_max = (int)((thetaMax + thetaInc - thetaMin) / thetaInc + 0.5);
+
+	std::vector<double> thetas;
+	std::vector<double> rtvs;
+	for (int i = 0; i < i_theta_max; i++) {
+		double theta = i * thetaInc + thetaMin;
+		thetas.push_back(theta);
+	}
+	
+	// Disable SFML error output
+	std::streambuf* prevBuf = sf::err().rdbuf(NULL);
+
+	// Open log file
+	ss << topfolder << imgprefix << "_L2_70.m";
+	FILE* logfp = fopen(ss.str().c_str(), "wb"); ss.str("");
+	if (!logfp) std::cout << "Couldn't open log file!" << std::endl;
+	fprintf(logfp, "m2 = [\n");
+
+	// Open prec log file
+	ss << topfolder << imgprefix << "_prec_log.m";
+	logfname = ss.str(); ss.str("");
+	logfile = fopen(logfname.c_str(), "wb");
+	if (logfile) {
+		fprintf(logfile, "m = [\n");
+	}
+	
+	bool force = true;
+	sf::VertexArray vaL1(sf::LinesStrip, thetas.size());
+	for (int i = 0; i < thetas.size(); i++) {
+		std::cout << i+1 << " of " << thetas.size() << std::endl;
+		ss << topfolder << precfolder << imgprefix << "_prec_L1_"
+			<< std::setprecision(2) << std::fixed << thetas[i] << "t.png";
+		std::string precL2name = ss.str(); ss.str("");
+
+		Image precL2;
+		if (!readImage(precL2, precL2name) || force) {
+			precL2 = precorrect(F, psf, thetas[i], optsL1);
+			writeImage(precL2, precL2name);
+		}
+
+		double rtvL2 = Image::RTV(F, precL2);
+		rtvs.push_back(rtvL2);
+
+		vaL1[i].color = sf::Color::Cyan;
+		vaL1[i].position = sf::Vector2f(thetas[i], rtvL2);
+
+		// Write to log file
+		fprintf(logfp, "%f %f\n", thetas[i], rtvL2);
+	}
+
+	// Close prec log file
+	if (logfile) {
+		fprintf(logfile, "];\n");
+		fclose(logfile);
+	}
+
+	// Close log file
+	fprintf(logfp, "];\n");
+	fclose(logfp);
+
+	// Re-enable SFML error output
+	sf::err().rdbuf(prevBuf);
+
+	// Find mins and maxes
+	double minX = *(std::min_element(thetas.begin(), thetas.end()));
+	double maxX = *(std::max_element(thetas.begin(), thetas.end()));
+	double minY = *(std::min_element(rtvs.begin(), rtvs.end()));
+	double maxY = *(std::max_element(rtvs.begin(), rtvs.end()));
+	double w = maxX - minX;
+	double h = maxY - minY;
+
+	// Flip vertically so origin is at lower-left
+	sf::Transform t = sf::Transform::Identity;
+	t.scale(1.0, -1.0, (minX + maxX) / 2.0, (minY + maxY) / 2.0);
+
+	std::cout << "Min theta: " << minX << std::endl
+		<< "Max theta: " << maxX << std::endl
+		<< "Min rtv: " << minY << std::endl
+		<< "Max rtv: " << maxY << std::endl;
+
+
+	sf::RenderWindow win(sf::VideoMode(512, 512), "Theta vs. RTV");
+	win.setVerticalSyncEnabled(true);
+	sf::View v(sf::FloatRect(minX - w / 5.0, minY - h / 5.0, w * 7.0 / 5.0, h * 7.0 / 5.0));
+	win.setView(v);
+
+	while (win.isOpen()) {
+		sf::Event e;
+		while (win.pollEvent(e)) {
+			switch (e.type) {
+			case sf::Event::Closed:
+				win.close(); break;
+			case sf::Event::KeyReleased:
+				if (e.key.code == sf::Keyboard::Escape)
+					win.close();
+				break;
+			}
+		}
+
+		win.clear();
+		win.draw(vaL1, t);
+		win.display();
+	}
+
+	return 0;
+}
+#endif
