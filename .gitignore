@@ -6,6 +6,7 @@
 *.log
 *.dat
 *.txt
+*.m
 camxform
 camgamma
 camalign
