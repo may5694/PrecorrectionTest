@@ -9,7 +9,7 @@
 #include "camcalib.h"
 
 using namespace cv;
-using namespace prec;
+//using namespace prec;
 
 int main() {
 	std::string psffolder = "psf/";
@@ -19,11 +19,11 @@ int main() {
 	std::string imgFname = ss.str(); ss.str("");
 
 
-	PSFParm ppm(2.0, 6.0, 0.5, 0.0);
+	PSFParm ppm(2.0, 6.0, 1.0, 0.0);
 	ss << psffolder << "psf_" << ppm.paramStr << ".dbl";
 	std::string psfName = ss.str(); ss.str("");
 
-	Mat cvPsf; readDbl(cvPsf, psfName);
+	Mat cvPsf; prec::readDbl(cvPsf, psfName);
 	Image imPsf; imPsf.fromBinary(psfName);
 
 	// Load image with OpenCV and convert to double
@@ -34,39 +34,84 @@ int main() {
 	}
 	cvImage.convertTo(cvImage, CV_64FC3, 1.0 / 255.0);
 
-	// Extract the green channel
-	Mat cvGreen(cvImage.rows, cvImage.cols, CV_64FC1);
-	int fromTo [] = { 1, 0 };
-	mixChannels(&cvImage, 1, &cvGreen, 1, fromTo, 1);
-	cvImage.release();
-
-	convolve(cvGreen, cvPsf, cvGreen, Reflexive);
+	vector<Mat> channels;
+	split(cvImage, channels);
 
 	// Read green channel into Image
-	Image imGreen;
-	{ Image imRed, imBlue;
+	Image imGreen; { Image imRed, imBlue;
 	readColorImage(imRed, imGreen, imBlue, imgFname); }
 
-	// Convolve image
-	imGreen = convolve(imGreen, imPsf, BC_PERIODIC);
+	prec::Options opts; opts.relchg = DBL_EPSILON; opts.maxiter = 20; opts.bc = prec::Reflexive; opts.tv = prec::TVL2;
+	opts.saveHist = true;
+	Mat cvPrec;
+	cvPrec = prec::precorrect(cvImage, cvPsf, 9.3e4, opts);
 
-	// Load Image result into a Mat
-	Mat cvImGreen(imGreen.getWidth(), imGreen.getHeight(), CV_64FC1, imGreen.data());
+	for (auto ch = opts.history.begin(); ch != opts.history.end(); ++ch) {
+		for (auto it = ch->begin(); it != ch->end(); ++it) {
+			Mat iter = it->X;
+			ss << "cvtest/iter/" << ch - opts.history.begin() << "_" << it->iter << ".png";
+			Mat itersave; iter.convertTo(itersave, CV_8U, 255.0);
+			imwrite(ss.str(), itersave); ss.str("");
+		}
+	}
 
+	/*Options imOpts; imOpts.relchg = DBL_EPSILON; imOpts.maxiter = 20; imOpts.bc = BC_PERIODIC; imOpts.tv = TVL1;
+	Image imPrec = precorrect(imGreen, imPsf, 9.3e4, imOpts);
 
-	Mat delta = abs(cvGreen - cvImGreen);
-	double max;
-	minMaxIdx(delta, NULL, &max);
+	Mat cvImPrec(imPrec.getHeight(), imPrec.getWidth(), CV_64FC1, imPrec.data());*/
+
+	/*Mat delta = abs(cvPrec - cvImPrec);
+	double max; minMaxIdx(delta, NULL, &max);
 	std::cout << "maximum difference: " << max << std::endl;
-	delta /= max;
+	delta /= max;*/
 
-	namedWindow("wnd1", CV_WINDOW_AUTOSIZE);
-	imshow("wnd1", cvGreen);
-	namedWindow("wnd2", CV_WINDOW_AUTOSIZE);
-	imshow("wnd2", cvImGreen);
-	namedWindow("wnd3", CV_WINDOW_AUTOSIZE);
-	imshow("wnd3", delta);
+	Mat cvDisp1 = cvPrec;
+	namedWindow("OpenCV 1", CV_WINDOW_AUTOSIZE);
+	imshow("OpenCV 1", cvDisp1);
+	/*Mat cvDisp2 = cvImPrec;
+	namedWindow("OpenCV 2", CV_WINDOW_AUTOSIZE);
+	imshow("OpenCV 2", cvDisp2);*/
+	/*Mat cvDisp3 = delta;
+	namedWindow("OpenCV 3", CV_WINDOW_AUTOSIZE);
+	imshow("OpenCV 3", cvDisp3);*/
 	waitKey(0);
+
+	//// Extract the green channel
+	//Mat cvGreen(cvImage.rows, cvImage.cols, CV_64FC1);
+	//int fromTo [] = { 1, 0 };
+	//mixChannels(&cvImage, 1, &cvGreen, 1, fromTo, 1);
+	//cvImage.release();
+
+	//double cvTV = totalVariation(cvGreen);
+
+	//// Read green channel into Image
+	//Image imGreen;
+	//{ Image imRed, imBlue;
+	//readColorImage(imRed, imGreen, imBlue, imgFname); }
+
+	//double imTV = imGreen.TV();
+
+	//std::cout << "OpenCV TV:  " << cvTV << std::endl;
+	//std::cout << "Image  TV:  " << imTV << std::endl;
+	//std::cout << "Difference: " << std::abs(cvTV - imTV) << std::endl;
+
+	//// Load Image result into a Mat
+	//Mat cvImDtXY(imDtXY.getWidth(), imDtXY.getHeight(), CV_64FC1, imDtXY.data());
+
+
+	//Mat delta = abs(DtXY - cvImDtXY);
+	//double max;
+	//minMaxIdx(delta, NULL, &max);
+	//std::cout << "maximum difference X: " << max << std::endl;
+	//delta /= max;
+
+	//namedWindow("wnd1", CV_WINDOW_AUTOSIZE);
+	//imshow("wnd1", DtXY);
+	//namedWindow("wnd2", CV_WINDOW_AUTOSIZE);
+	//imshow("wnd2", cvImDtXY);
+	//namedWindow("wnd3", CV_WINDOW_AUTOSIZE);
+	//imshow("wnd3", delta);
+	//waitKey(0);
 
 	return 0;
 }
